@@ -1,3 +1,11 @@
+# Forked libraries and sdk's
+pytorch3d
+CeleX5-ROS
+
+#Py stuff
+*.ipynb_checkpoints
+*__pycache__
+
 # Prerequisites
 *.d
 
