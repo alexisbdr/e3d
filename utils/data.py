@@ -5,6 +5,7 @@ from os.path import join, abspath, dirname
 sys.path.insert(1, (abspath(join(dirname(__file__), "../"))))
 
 from dataclasses import dataclass, field, asdict
+import numpy as np
 import time
 import json
 from PIL import Image
@@ -32,28 +33,57 @@ class ImageManager:
     R: torch.tensor = field(default_factory=torch.tensor)
     T: torch.tensor = field(default_factory=torch.tensor)
 
-    extension: str = "png"
-
-    def __post_init__(self):
-        self.R = json.dumps(self.R.cpu().numpy().tolist())
-        self.T = json.dumps(self.T.cpu().numpy().tolist())
+    extension: str = "jpg"
 
     @property
     def _dict(self):
+        self.R = json.dumps(self.R.tolist())
+        self.T = json.dumps(self.T.tolist())
         return asdict(self)
 
     @property
-    def _load(self, path):
-        return imageio.imread(path)
+    def _load(self):
+        return imageio.imread(self.image_path)
         #return Image.open(path)
 
-    def _save(self, image_data, f_loc):
-        self.image_path = f"{self.posn}_{self.render_type}.{self.extension}"
-        full_path = join(f_loc, self.image_path)
-        #pil_imgdata = Image.fromarray(image_data)
-        #pil_imgdata.save(self.image_path)
-        imageio.imwrite(full_path, image_data, format="PNG")
+    def _save(self, image_data, f_loc, img_format="png"):
+        if img_format=="jpg":
+            self.extension = img_format
+            img_format = "JPEG-PIL"
+            extra_args = {}
+        elif img_format=="png":
+            self.extension = img_format
+            img_format = "PNG"
+            #img_format = img_format.upper()
+            #Lossy conversion from float32 to uint8
+            """
+            info = np.finfo(image_data.dtype)
+            #Normalize the image
+            image_data /= info.max
+            image_data *= 255
+            image_data = image_data.astype(np.uint8)
+            """
+            #Lowered the compression level for improved performance
+            #Refer to this issue https://github.com/imageio/imageio/issues/387
+            extra_args = {"compress_level" : 3}
+        elif img_format=="tif":
+            self.extension = img_format
+            img_format = img_format.upper()
+            extra_args = {}
+        img_file = f"{self.posn}_{self.render_type}.{self.extension}"
+        self.image_path = join(f_loc, img_file)
+        imageio.imwrite(self.image_path, image_data, format=img_format, **extra_args)
 
+    @classmethod
+    def from_dict(cls, dict_in):
+        mod = dict_in.copy()
+        use_dict = {}
+        for entry in mod:
+            if entry in cls.__annotations__:
+                if entry == "R" or entry == "T":
+                    dict_in[entry] = torch.tensor(json.loads(dict_in[entry]))
+                use_dict[entry] = dict_in[entry]
+        return cls(**use_dict)
 
 @dataclass
 class RenderManager:
@@ -89,7 +119,7 @@ class RenderManager:
                 raise TypeError(f"RenderManager: Wrong image type set in init, an image type must be one of: {ImageManager.allowed_types}")
             #Create a folder for each type
             self.folder_locs[t] = join(self.folder_locs['base'], t)
-            os.makedirs(self.folder_locs[t])
+            os.makedirs(self.folder_locs[t], exist_ok=True)
             #Create a gif writer for each type
             gif_t_loc = join(self.folder_locs[t], f"camera_simulation_{t}.gif")
             #TODO[ALEXIS] Need to play around with this duration parameter
@@ -118,7 +148,8 @@ class RenderManager:
             img = img_as_ubyte(imgs_data[img_type])
             self.gif_writers[img_type].append_data(img)
             #Append to images list
-            self.images[img_type].append(asdict(img_manager))
+            self.images[img_type].append(img_manager._dict)
+        self.count += 1
 
     def set_metadata(self, meta):
         self.metadata = meta
@@ -133,6 +164,7 @@ class RenderManager:
         json_file = join(self.folder_locs['base'], "info.json")
         with open(json_file, mode="w") as f:
             json.dump(json_dict, f)
+
 
 if __name__ == "__main__":
     rm = RenderManager(
