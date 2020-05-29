@@ -109,10 +109,11 @@ class SphericalSpiral(Shape):
     Generates points on a spherical spiral
     https://mathworld.wolfram.com/SphericalSpiral.html for more information
     """
-
+    
     a: float = 1.0 #constant in the parametric equation
     t_min: float = 0.0 #t is the parametric variable
     t_max: float = math.pi
+    c: float = 1.0 #scale coefficient to make the spiral wider
     # [Point3D, Point3D, ...]
     num_points: int = 30
     points: list = field(default_factory=list)
@@ -123,8 +124,8 @@ class SphericalSpiral(Shape):
         for t in t_range:
             denom = math.sqrt(1 + pow(self.a, 2) + pow(t, 2))
             point = Point3D(
-                x = float(math.cos(t) / denom),
-                y = float(math.sin(t) / denom),
+                x = self.c * float(math.cos(t) / denom),
+                y = self.c * float(math.sin(t) / denom),
                 z = float(-(self.a * t) / denom)
             )
             self.points.append(point)

@@ -1,10 +1,14 @@
+# Data stuff
+data/human-pose/h36m
+data/renders/
+
 # Forked libraries and sdk's
 pytorch3d
 CeleX5-ROS
 
 #Py stuff
 *.ipynb_checkpoints
-*__pycache__
+*__pycache__*
 
 # Prerequisites
 *.d
