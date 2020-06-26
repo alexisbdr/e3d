@@ -4,6 +4,7 @@ from os.path import join, abspath, dirname
 #Move path to top level directory
 sys.path.insert(1, (abspath(join(dirname(__file__), "../"))))
 
+from copy import deepcopy
 from dataclasses import dataclass, field, asdict
 import numpy as np
 import time
@@ -14,6 +15,9 @@ from skimage import img_as_ubyte
 import torch
 
 import logging
+
+def default_tensor():
+    return torch.tensor([])
 
 @dataclass
 class ImageManager:
@@ -30,21 +34,26 @@ class ImageManager:
     render_type: str = ""
 
     #Camera pose at that render point
-    R: torch.tensor = field(default_factory=torch.tensor)
-    T: torch.tensor = field(default_factory=torch.tensor)
+    R: list = field(default_factory=list)
+    T: list = field(default_factory=list)
 
     extension: str = "jpg"
 
     @property
     def _dict(self):
-        self.R = json.dumps(self.R.tolist())
-        self.T = json.dumps(self.T.tolist())
+        #self.R = self.R.tolist())
+        #self.T = jsonself.T.tolist())
         return asdict(self)
 
     @property
     def _load(self):
-        return imageio.imread(self.image_path)
-        #return Image.open(path)
+        data = imageio.imread(self.image_path)
+        if self.render_type == "shaded":
+            return self.gray(data)
+        return data
+
+    def gray(self, img):
+        return np.dot(img[...,:3], [0.2989, 0.5870, 0.1140])
 
     def _save(self, image_data, f_loc, img_format="png"):
         if img_format=="jpg":
@@ -80,8 +89,8 @@ class ImageManager:
         use_dict = {}
         for entry in mod:
             if entry in cls.__annotations__:
-                if entry == "R" or entry == "T":
-                    dict_in[entry] = torch.tensor(json.loads(dict_in[entry]))
+                #if entry == "R" or entry == "T":
+                #    dict_in[entry] = torch.tensor(json.loads(dict_in[entry]))
                 use_dict[entry] = dict_in[entry]
         return cls(**use_dict)
 
@@ -95,6 +104,10 @@ class RenderManager:
     mesh_name: str = ""
     #List of paths on disk - storing the dataclass here might make it too large (to test)
     images: dict = field(default_factory=dict)
+
+    #Trajectory
+    R: list = field(default_factory=list)
+    T: list = field(default_factory=list)
 
     #List of render types
     types: list = field(default_factory=list)
@@ -123,10 +136,26 @@ class RenderManager:
             #Create a gif writer for each type
             gif_t_loc = join(self.folder_locs[t], f"camera_simulation_{t}.gif")
             #TODO[ALEXIS] Need to play around with this duration parameter
-            gif_t_writer = imageio.get_writer(gif_t_loc, mode="I", duration=1)
+            gif_t_writer = imageio.get_writer(gif_t_loc, mode="I", duration=.2)
             self.gif_writers[t] = gif_t_writer
             #Create an image storage for the image type
             self.images[t] = []
+
+    @property
+    def _trajectory(self) -> tuple:
+        R = torch.stack(([torch.tensor(r) for r in self.R]))[:,0,:]
+        T = torch.stack(([torch.tensor(t) for t in self.T]))[:,0,:]
+        return (R, T)
+    
+    def _images(self, type_key:str = "shaded") -> list:
+        #Returns a huge list of rendered images, use with caution
+        images_data = []
+        for img_dict in self.images[type_key]:
+            img = deepcopy(img_dict)
+            img_manager = ImageManager.from_dict(img_dict)
+            img_data = img_manager._load
+            images_data.append(img_data)
+        return images_data
 
     @property
     def allowed_render_types(self):
@@ -134,6 +163,8 @@ class RenderManager:
 
     def add_images(self, count, imgs_data, R, T):
         #Create ImageData class for each type of image
+        R = R.tolist()
+        T = T.tolist()
         for img_type in imgs_data.keys():
             if img_type not in self.images.keys():
                 raise TypeError(f"RenderManager: wrong render type {img_type}")
@@ -143,6 +174,7 @@ class RenderManager:
                 R = R,
                 T = T
             )
+            
             img_manager._save(imgs_data[img_type], self.folder_locs[img_type])
             #Append to gif writer
             img = img_as_ubyte(imgs_data[img_type])
@@ -150,17 +182,31 @@ class RenderManager:
             #Append to images list
             self.images[img_type].append(img_manager._dict)
         self.count += 1
+        if not len(R) and not len(T):
+                self.R = R
+                self.T = T
+        else:
+            self.R.append(R)
+            self.T.append(T)
+      
 
     def set_metadata(self, meta):
         self.metadata = meta
 
+    def _dict(self):
+        _dict = asdict(self)
+        #_dict['R'] = json.dumps([r.tolist() for r in _dict['R']])
+        #_dict['T'] = json.dumps([r.tolist() for r in _dict['T']])
+        print(_dict)
+        return _dict
+        
     def close(self):
         #close writers
         for key, gw in self.gif_writers.items():
             gw.close()
             self.gif_writers[key] = join(self.folder_locs[key], f"camera_simulation_{key}.gif")
         #generate json file for the render
-        json_dict = asdict(self)
+        json_dict = self._dict()
         json_file = join(self.folder_locs['base'], "info.json")
         with open(json_file, mode="w") as f:
             json.dump(json_dict, f)
