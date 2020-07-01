@@ -8,12 +8,13 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 import plotly.express as px
+import numpy as np
 
 def plot_pointcloud(mesh, title=""):
     # Sample points uniformly from the surface of the mesh.
     points = sample_points_from_meshes(mesh, 5000)
     x, y, z = points.clone().detach().cpu().squeeze().unbind(1)
-    data = np.array([x,y,z])
+    '''
     fig = go.Figure()
     fig = px.scatter_3d(
         x = x,
@@ -25,8 +26,8 @@ def plot_pointcloud(mesh, title=""):
         title_text = f"PointCloud: {title}"
     )
     fig.show()
-
-    """
+'''
+    
     #Matplot 3D scatter plot
     fig = plt.figure(figsize=(5, 5))
     ax = Axes3D(fig)
@@ -37,7 +38,7 @@ def plot_pointcloud(mesh, title=""):
     ax.set_title(title)
     ax.view_init(190, 30)
     plt.show()
-    """
+    
 
 def get_camera_wireframe(scale: float = 0.3):
     """
