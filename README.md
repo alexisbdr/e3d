@@ -21,8 +21,8 @@ Follow these steps:
 
 ### OPTION 1 - [DOCKER]()
 ```
-docker pull abaudron0215/warehouse-anomaly
-docker run --gpus all -it abaudron0215/warehouse-anomaly bash
+docker pull **COMING**
+docker run **WAIT**
 ```
 
 ### OPTION 2 - MANUAL INSTALL WITH ANACONDA
