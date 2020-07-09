@@ -1,6 +1,8 @@
 # Data stuff
 data/human-pose/h36m
 data/renders/
+data/meshes/
+data/papers/
 *.png
 *.gif
 *.pem
