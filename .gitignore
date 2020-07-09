@@ -1,6 +1,11 @@
 # Data stuff
 data/human-pose/h36m
 data/renders/
+*.png
+*.gif
+*.pem
+
+*.vscode
 
 #Py stuff
 *.ipynb_checkpoints
