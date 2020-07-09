@@ -18,9 +18,9 @@ conda activate pytorch3d
 conda install -c pytorch pytorch torchvision cudatoolkit=10.2
 conda install -c conda-forge -c fvcore fvcore
 ```
-Installing Pytorch3D with CUDA Suppot
+Installing Pytorch3D with CUDA Support (Conda build is currently down - install from source instead):
 ```
-conda install pytorch3d -c pytorch3d
+pip install 'git+https://github.com/facebookresearch/pytorch3d.git'
 ```
 Installing Pytorch3D without CUDA Support
 ```
