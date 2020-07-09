@@ -1,20 +1,37 @@
 # E3D: Recovering Shape from Events
 
-## Running E3D on AWS EC2
-### Setting up the environment
-#### OS/Hardware Requirements
-* [Ubuntu 16+ (Tested on Ubuntu 18.04)]
-* [Nvidia GPU w/ 4Gb+ Memory]
-* [~50GB of SSD storage]
-* [Tensorflow-gpu 2.0+]
-* [OpenCV3]
+## Running E3D
 
-Follow these steps:
+#### Installing Pytorch3D
+* [Linux - Ubuntu16+]
+* [Pytorch3D]
+* [Python 3.6+]
+* [Pytorch 1.4 or 1.5]
+* [gcc & g++ 4.9+]
+* [fvcore]
+* [CUDA 9.2+ (optional)]
+
+Install dependencies: 
+```
+conda create -n pytorch3d python=3.8
+conda activate pytorch3d
+conda install -c pytorch pytorch torchvision cudatoolkit=10.2
+conda install -c conda-forge -c fvcore fvcore
+```
+Installing Pytorch3D with CUDA Suppot
+```
+conda install pytorch3d -c pytorch3d
+```
+Installing Pytorch3D without CUDA Support
+```
+pip install pytorch3d
+```
+
 
 #### [SUGGESTED] EC2 Instance & Deep Learning AMI
 * [Deep Learning Base AMI](https://aws.amazon.com/marketplace/pp/B07Y3VDBNS)
 * Instance Type:
-    *testing: g4dn.xlarge
+    * testing: g4dn.xlarge
     * training: g4dn.4xlarge
 * Storage: 
     * 50Gb of ssd
@@ -42,12 +59,10 @@ bash Anaconda3-2020.02-Linux-x86_64.sh
 #### 2. Create and activate the Tensorflow environment
 ```
 source ~/.bashrc
-conda create --name tf-gpu tensorflow-gpu
-conda activate tf-gpu
-conda install pillow matplotlib
 ```
+Follow instructions above for installing Pytorch3d
     
 #### 3. Clone the repo
 ```
-git clone https://github.com/alexisbdr/warehouse-anomaly
+git clone https://github.com/alexisbdr/E3D
 ```
