@@ -49,8 +49,8 @@ class ImageManager:
     def _load(self):
         data = imageio.imread(self.image_path)
         if self.render_type == "shaded":
-            return self.gray(data)
-        return data
+            data = self.gray(data)
+        return torch.from_numpy(data)
 
     def gray(self, img):
         return np.dot(img[...,:3], [0.2989, 0.5870, 0.1140])
@@ -155,7 +155,7 @@ class RenderManager:
             img_manager = ImageManager.from_dict(img_dict)
             img_data = img_manager._load
             images_data.append(img_data)
-        return images_data
+        return torch.stack(images_data)
 
     @property
     def allowed_render_types(self):
