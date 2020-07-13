@@ -26,8 +26,8 @@ def plot_pointcloud(mesh, title=""):
         title_text = f"PointCloud: {title}"
     )
     fig.show()
-'''
-    
+    '''
+
     #Matplot 3D scatter plot
     fig = plt.figure(figsize=(5, 5))
     ax = Axes3D(fig)
@@ -38,7 +38,7 @@ def plot_pointcloud(mesh, title=""):
     ax.set_title(title)
     ax.view_init(190, 30)
     plt.show()
-    
+
 
 def get_camera_wireframe(scale: float = 0.3):
     """
@@ -72,43 +72,53 @@ def plot_cameras(ax, cameras, color: str = "blue"):
         return plot_handles
 
 
-    def plot_camera_scene(cameras, cameras_gt, status: str):
-        """
-        Plots a set of predicted cameras `cameras` and their corresponding
-                    ground truth locations `cameras_gt`. The plot is named with
-                        a string passed inside the `status` argument.
-        """
-        fig = plt.figure()
-        ax = fig.gca(projection="3d")
-        ax.clear()
-        ax.set_title(status)
-        handle_cam = plot_cameras(ax, cameras, color="#FF7D1E")
-        handle_cam_gt = plot_cameras(ax, cameras_gt, color="#812CE5")
-        plot_radius = 3
-        ax.set_xlim3d([-plot_radius, plot_radius])
-        ax.set_ylim3d([3 - plot_radius, 3 + plot_radius])
-        ax.set_zlim3d([-plot_radius, plot_radius])
-        ax.set_xlabel("x")
-        ax.set_ylabel("z")
-        ax.set_zlabel("y")
-        labels_handles = {
-            "Estimated cameras": handle_cam[0],
-            "GT cameras": handle_cam_gt[0],
+def plot_loss(self, num_losses: int = 1):
+    """
+    returns a matplotlib subplot object that you can call plot() on
+    """
+    #plt.axis([-, ,min(self.sequence_score) - .1,1.0])
+    ax = plt.subplot(111)
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
 
-        }
-        ax.legend(
-            labels_handles.values(),
-            labels_handles.keys(),
-            loc="upper center",
-            bbox_to_anchor=(0.5, 0),
+    # Put a legend to the right of the current axis
+    ax.plot([], ".b-", label=self.model.strip('.hdf5'))
+    ax.legend(loc='center left', bbox_to_anchor=(.8, 0.9))
+    ax.set_title(self.test_path.split('/')[-1])
+    return ax
 
-        )
-        plt.show()
-        return fig
 
+def plot_camera_scene(cameras, cameras_gt, status: str):
     """
+    Plots a set of predicted cameras `cameras` and their corresponding
+                ground truth locations `cameras_gt`. The plot is named with
+                    a string passed inside the `status` argument.
     """
-    """
-    """
-    """
-    """
+    fig = plt.figure()
+    ax = fig.gca(projection="3d")
+    ax.clear()
+    ax.set_title(status)
+    handle_cam = plot_cameras(ax, cameras, color="#FF7D1E")
+    handle_cam_gt = plot_cameras(ax, cameras_gt, color="#812CE5")
+    plot_radius = 3
+    ax.set_xlim3d([-plot_radius, plot_radius])
+    ax.set_ylim3d([3 - plot_radius, 3 + plot_radius])
+    ax.set_zlim3d([-plot_radius, plot_radius])
+    ax.set_xlabel("x")
+    ax.set_ylabel("z")
+    ax.set_zlabel("y")
+    labels_handles = {
+        "Estimated cameras": handle_cam[0],
+        "GT cameras": handle_cam_gt[0],
+
+    }
+    ax.legend(
+        labels_handles.values(),
+        labels_handles.keys(),
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0),
+
+    )
+    plt.show()
+    return fig
+
