@@ -5,6 +5,7 @@ from os.path import join, abspath, dirname
 sys.path.insert(1, (abspath(join(dirname(__file__), "../"))))
 
 from copy import deepcopy
+from typing import List
 from dataclasses import dataclass, field, asdict
 import numpy as np
 import time
@@ -16,8 +17,42 @@ import torch
 
 import logging
 
+from utils.pyutils import from_dict
+
 def default_tensor():
     return torch.tensor([])
+
+@dataclass
+class EventFrameManager:
+    """
+    Contains information about a single event frame
+    Serializes/De-Serialized the event frame using pickle
+    """
+    posn: int = 0
+
+    file_name: str = ""
+    extension: str = "npy"
+
+    @property
+    def _dict(self):
+        return asdict(self)
+
+    @property
+    def _load(self):
+        if not self.pickle_path:
+            raise Exception("Path for event frame does not exist")
+        return np.load(self.pickle_path)
+
+    def _save(self, event_data, f_loc):
+        if type(event_data) is not np.ndarray:
+            raise Exception("Event Data should be a Numpy Array")
+        event_file = f"{self.posn}_event.{self.extension}"
+        self.file_name = join(f_loc, event_file)
+        np.save(self.file_name, event_data)
+
+    @classmethod
+    def from_dict(cls, dict_in):
+        return from_dict(cls, dict_in)
 
 @dataclass
 class ImageManager:
@@ -41,8 +76,6 @@ class ImageManager:
 
     @property
     def _dict(self):
-        #self.R = self.R.tolist())
-        #self.T = jsonself.T.tolist())
         return asdict(self)
 
     @property
@@ -85,14 +118,7 @@ class ImageManager:
 
     @classmethod
     def from_dict(cls, dict_in):
-        mod = dict_in.copy()
-        use_dict = {}
-        for entry in mod:
-            if entry in cls.__annotations__:
-                #if entry == "R" or entry == "T":
-                #    dict_in[entry] = torch.tensor(json.loads(dict_in[entry]))
-                use_dict[entry] = dict_in[entry]
-        return cls(**use_dict)
+        return from_dict(cls, dict_in)
 
 @dataclass
 class RenderManager:
@@ -104,6 +130,7 @@ class RenderManager:
     mesh_name: str = ""
     #List of paths on disk - storing the dataclass here might make it too large (to test)
     images: dict = field(default_factory=dict)
+    event_frames: dict = field(default_factory=dict)
 
     #Trajectory
     R: list = field(default_factory=list)
@@ -133,12 +160,7 @@ class RenderManager:
             #Create a folder for each type
             self.folder_locs[t] = join(self.folder_locs['base'], t)
             os.makedirs(self.folder_locs[t], exist_ok=True)
-            #Create a gif writer for each type
-            gif_t_loc = join(self.folder_locs[t], f"camera_simulation_{t}.gif")
-            #TODO[ALEXIS] Need to play around with this duration parameter
-            gif_t_writer = imageio.get_writer(gif_t_loc, mode="I", duration=.2)
-            self.gif_writers[t] = gif_t_writer
-            #Create an image storage for the image type
+            self.open_gif_writer(t)
             self.images[t] = []
 
     @property
@@ -146,7 +168,18 @@ class RenderManager:
         R = torch.stack(([torch.tensor(r) for r in self.R]))[:,0,:]
         T = torch.stack(([torch.tensor(t) for t in self.T]))[:,0,:]
         return (R, T)
-    
+
+    @property
+    def allowed_render_types(self):
+        return ["silhouette", "shaded", "textured", "events"]
+
+    def open_gif_writer(self, t: str, duration: float = .2):
+        if t in self.gif_writers:
+            return
+        gif_t_loc = join(self.folder_locs[t], f"camera_simulation_{t}.gif")
+        gif_t_writer = imageio.get_writer(gif_t_loc, mode="I", duration=duration)
+        self.gif_writers[t] = gif_t_writer
+
     def _images(self, type_key:str = "shaded") -> list:
         #Returns a huge list of rendered images, use with caution
         images_data = []
@@ -156,10 +189,6 @@ class RenderManager:
             img_data = img_manager._load
             images_data.append(img_data)
         return torch.stack(images_data)
-
-    @property
-    def allowed_render_types(self):
-        return ["silhouette", "shaded", "textured"]
 
     def add_images(self, count, imgs_data, R, T):
         #Create ImageData class for each type of image
@@ -174,7 +203,6 @@ class RenderManager:
                 R = R,
                 T = T
             )
-            
             img_manager._save(imgs_data[img_type], self.folder_locs[img_type])
             #Append to gif writer
             img = img_as_ubyte(imgs_data[img_type])
@@ -188,18 +216,20 @@ class RenderManager:
         else:
             self.R.append(R)
             self.T.append(T)
-      
+
+    def add_event_frame(self, count, frame):
+        event_manager = EventFrameManager(count)
+        event_manager._save(frame, self.folder_locs["events"])
+        frame = img_as_ubyte(frame)
+        self.gif_writers["events"].append_data(frame)
+        self.images["events"].append(event_manager._dict)
 
     def set_metadata(self, meta):
         self.metadata = meta
 
     def _dict(self):
-        _dict = asdict(self)
-        #_dict['R'] = json.dumps([r.tolist() for r in _dict['R']])
-        #_dict['T'] = json.dumps([r.tolist() for r in _dict['T']])
-        print(_dict)
-        return _dict
-        
+        return asdict(self)
+
     def close(self):
         #close writers
         for key, gw in self.gif_writers.items():
