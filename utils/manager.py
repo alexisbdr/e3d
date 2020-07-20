@@ -39,16 +39,25 @@ class EventFrameManager:
 
     @property
     def _load(self):
-        if not self.pickle_path:
+        if not self.file_name:
             raise Exception("Path for event frame does not exist")
-        return np.load(self.pickle_path)
+        if self.extension == "npy":
+            return np.load(self.file_name)
+        elif self.extension == "png":
+            return torch.from_numpy(imageio.imread(self.file_name))
 
-    def _save(self, event_data, f_loc):
+    def _save(self, event_data, f_loc, sformat: str = ""):
+        self.extension = sformat if sformat else self.extension
         if type(event_data) is not np.ndarray:
             raise Exception("Event Data should be a Numpy Array")
         event_file = f"{self.posn}_event.{self.extension}"
         self.file_name = join(f_loc, event_file)
-        np.save(self.file_name, event_data)
+        if self.extension == "npy":
+            np.save(self.file_name, event_data)
+        elif self.extension == "png":
+            img_format = self.extension.upper()
+            extra_args = {"compress_level": 3}
+            imageio.imwrite(self.file_name, event_data, format=img_format, **extra_args)
 
     @classmethod
     def from_dict(cls, dict_in):
@@ -146,17 +155,25 @@ class RenderManager:
     formatted_utc_ts: str = ""
     gif_writers: dict = field(default_factory=dict)
 
+    base_folder: str = "data/renders/"
+
     def __post_init__(self):
         #Timestamp format
         curr_struct_UTC_ts = time.gmtime(time.time())
         self.formatted_utc_ts = time.strftime("%Y-%m-%dT%H:%M:%S")
 
-        self.folder_locs['base'] = f"data/renders/{self.mesh_name}_{self.formatted_utc_ts}"
+        nums = [0]
+        for f in os.listdir(self.base_folder):
+            try:
+                nums.append(int(f.split("-")[0]))
+            except:
+                continue
+        render_posn = max(nums) + 1
+        self.folder_locs['base'] = os.path.join(self.base_folder, f"{render_posn:03}-{self.mesh_name}_{self.formatted_utc_ts}")
         logging.info(f"Render Manager started in base file {self.folder_locs['base']}")
         for t in self.types:
-            print(t)
             if t not in self.allowed_render_types:
-                raise TypeError(f"RenderManager: Wrong image type set in init, an image type must be one of: {ImageManager.allowed_types}")
+                raise TypeError(f"RenderManager: Wrong image type set in init, an image type must be one of: {self.allowed_render_types}")
             #Create a folder for each type
             self.folder_locs[t] = join(self.folder_locs['base'], t)
             os.makedirs(self.folder_locs[t], exist_ok=True)
@@ -171,7 +188,7 @@ class RenderManager:
 
     @property
     def allowed_render_types(self):
-        return ["silhouette", "shaded", "textured", "events"]
+        return ["silhouette", "phong", "textured", "events"]
 
     def open_gif_writer(self, t: str, duration: float = .2):
         if t in self.gif_writers:
@@ -189,6 +206,14 @@ class RenderManager:
             img_data = img_manager._load
             images_data.append(img_data)
         return torch.stack(images_data)
+
+    def _events(self) -> list:
+        event_data = []
+        for event_dict in self.images["events"]:
+            event = deepcopy(event_dict)
+            event_manager = EventFrameManager.from_dict(event_dict)
+            event_data.append(event_manager._load)
+        return torch.stack(event_data)
 
     def add_images(self, count, imgs_data, R, T):
         #Create ImageData class for each type of image
@@ -218,7 +243,7 @@ class RenderManager:
             self.T.append(T)
 
     def add_event_frame(self, count, frame):
-        event_manager = EventFrameManager(count)
+        event_manager = EventFrameManager(count, extension="png")
         event_manager._save(frame, self.folder_locs["events"])
         frame = img_as_ubyte(frame)
         self.gif_writers["events"].append_data(frame)
@@ -245,7 +270,7 @@ class RenderManager:
 if __name__ == "__main__":
     rm = RenderManager(
         mesh_name = "teapot",
-        types = ["shaded"]
+        types = ["phong"]
     )
 
 
