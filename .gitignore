@@ -9,6 +9,9 @@ data/papers/
 
 *.vscode
 
+#Cmake Stuff
+*/build/*
+
 #Py stuff
 *.ipynb_checkpoints
 *__pycache__*
