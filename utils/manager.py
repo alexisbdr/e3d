@@ -197,7 +197,7 @@ class RenderManager:
         gif_t_writer = imageio.get_writer(gif_t_loc, mode="I", duration=duration)
         self.gif_writers[t] = gif_t_writer
 
-    def _images(self, type_key:str = "shaded") -> list:
+    def _images(self, type_key:str = "phong") -> list:
         #Returns a huge list of rendered images, use with caution
         images_data = []
         for img_dict in self.images[type_key]:
