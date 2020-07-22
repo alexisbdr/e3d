@@ -90,7 +90,7 @@ class ImageManager:
     @property
     def _load(self):
         data = imageio.imread(self.image_path)
-        if self.render_type == "shaded":
+        if self.render_type == "phong":
             data = self.gray(data)
         return torch.from_numpy(data)
 
