@@ -139,7 +139,6 @@ class RenderManager:
     mesh_name: str = ""
     #List of paths on disk - storing the dataclass here might make it too large (to test)
     images: dict = field(default_factory=dict)
-    event_frames: dict = field(default_factory=dict)
 
     #Trajectory
     R: list = field(default_factory=list)
@@ -266,6 +265,27 @@ class RenderManager:
         with open(json_file, mode="w") as f:
             json.dump(json_dict, f)
 
+    @classmethod
+    def from_directory(cls, dir_num: int = None):
+        """
+        Finds the most recent valid render directory or the one specified by "dir_num"
+        Returns a instantiated class from that folder
+        """
+        directory_paths = sorted(os.listdir("data/renders/"), reverse=True)
+        for p in directory_paths:
+            #Check if the info.json file is present in that directory
+            full_path = join("data/renders/", p)
+            path_to_json = join(full_path, "info.json")
+            if not os.path.exists(path_to_json):
+                continue
+            num = int(p.split("-")[0])
+            if dir_num is None or dir_num == num:
+                break
+        with open(path_to_json, 'r') as f:
+            json_dict = json.load(f)
+            ret = from_dict(cls, json_dict)
+            ret.images = json_dict['images']
+        return ret
 
 if __name__ == "__main__":
     rm = RenderManager(
