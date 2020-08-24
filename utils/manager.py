@@ -156,7 +156,11 @@ class RenderManager:
 
     base_folder: str = "data/renders/"
 
-    def __post_init__(self):
+    def _init(self):
+        """Initialization step for the manager
+            1. creates folder architecture on disk
+            2. initializes gif writers and image dict
+        """
         #Timestamp format
         curr_struct_UTC_ts = time.gmtime(time.time())
         self.formatted_utc_ts = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -284,7 +288,7 @@ class RenderManager:
         with open(path_to_json, 'r') as f:
             json_dict = json.load(f)
             ret = from_dict(cls, json_dict)
-            ret.images = json_dict['images']
+            #ret.images = json_dict['images']
         return ret
 
 if __name__ == "__main__":
