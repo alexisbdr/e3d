@@ -126,8 +126,8 @@ def plot_camera_scene(cameras, cameras_gt, status: str):
 def visualize_vid2e_events(events, resolution):
     """https://github.com/uzh-rpg/rpg_vid2e/blob/master/esim_py/tests/plot_virtual_events.py
     """
-    pos_events = events[events[:,-1]==1]
-    neg_events = events[events[:,-1]==-1]
+    pos_events = events[events[:,-1] == 1]
+    neg_events = events[events[:,-1] == -1]
 
     image_pos = np.zeros(resolution[0]*resolution[1], dtype="uint8")
     image_neg = np.zeros(resolution[0]*resolution[1], dtype="uint8")
