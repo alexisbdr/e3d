@@ -11,11 +11,17 @@ dependencies:
   - bleach=3.1.4=py_0
   - boost=1.70.0=py37h9de70de_1
   - boost-cpp=1.70.0=ha2d47e9_1
+  - brotlipy=0.7.0=py37h7b6447c_1000
   - bzip2=1.0.8=h516909a_3
-  - ca-certificates=2020.6.20=hecda079_0
+  - ca-certificates=2020.7.22=0
   - cairo=1.14.12=h8948797_3
-  - certifi=2020.6.20=py37hc8dfbb8_0
+  - certifi=2020.6.20=py37_0
+  - cffi=1.14.0=py37h2e261b9_0
+  - chardet=3.0.4=py37_1003
+  - cmake=3.14.0=h52cb24c_0
   - cpuonly=1.0=0
+  - cryptography=3.1=py37h1ba5d50_0
+  - dataclasses=0.7=py37_0
   - dbus=1.13.14=hb2f20db_0
   - decorator=4.4.2=py_0
   - defusedxml=0.6.0=py_0
@@ -25,6 +31,7 @@ dependencies:
   - ffmpeg=4.1.3=h167e202_0
   - fontconfig=2.13.0=h9420a91_0
   - freetype=2.9.1=h8a8886c_1
+  - future=0.18.2=py37_1
   - fvcore=0.1.dev200325=py_0
   - giflib=5.2.1=h516909a_2
   - glib=2.63.1=h5a9c865_0
@@ -39,7 +46,7 @@ dependencies:
   - icu=58.2=he6710b0_3
   - importlib_metadata=1.5.0=py37_0
   - intel-openmp=2020.1=217
-  - ipykernel=5.1.4=py37h39e3cac_0
+  - ipykernel=5.3.4=py37h5ca1d4c_0
   - ipython=7.13.0=py37h5ca1d4c_0
   - ipython_genutils=0.2.0=py37_0
   - ipywidgets=7.5.1=py_0
@@ -52,10 +59,12 @@ dependencies:
   - jupyter_client=6.1.3=py_0
   - jupyter_console=6.1.0=py_0
   - jupyter_core=4.6.3=py37_0
+  - krb5=1.17.1=h173b8e3_0
   - lame=3.100=h14c3975_1001
   - ld_impl_linux-64=2.33.1=h53a641e_7
   - libblas=3.8.0=16_mkl
   - libcblas=3.8.0=16_mkl
+  - libcurl=7.69.1=h20c2e04_0
   - libedit=3.1.20181209=hc058e9b_0
   - libffi=3.2.1=hd88cf55_4
   - libgcc-ng=9.1.0=hdf63c60_0
@@ -66,6 +75,7 @@ dependencies:
   - libllvm9=9.0.1=h4a3c616_1
   - libpng=1.6.37=hbc83047_0
   - libsodium=1.0.16=h1bed415_0
+  - libssh2=1.9.0=h1ba5d50_1
   - libstdcxx-ng=9.1.0=hdf63c60_0
   - libtiff=4.1.0=h2733197_0
   - libuuid=1.0.3=h1bed415_2
@@ -73,9 +83,11 @@ dependencies:
   - libxcb=1.13=h1bed415_1
   - libxml2=2.9.9=hea5a465_1
   - llvmlite=0.33.0=py37hc6ec683_1
+  - magma-cuda110=2.5.2=1
   - markupsafe=1.1.1=py37h7b6447c_0
   - mistune=0.8.4=py37h7b6447c_0
-  - mkl=2020.1=217
+  - mkl=2020.2=256
+  - mkl-include=2020.2=256
   - mkl-service=2.3.0=py37he904b0f_0
   - mkl_fft=1.0.15=py37ha843d7b_0
   - mkl_random=1.1.0=py37hd6b4f25_0
@@ -83,7 +95,7 @@ dependencies:
   - nbformat=5.0.6=py_0
   - ncurses=6.2=he6710b0_1
   - nettle=3.4.1=h1bed415_1002
-  - ninja=1.9.0=py37hfd86e86_0
+  - ninja=1.10.0=py37hfd86e86_0
   - notebook=6.0.3=py37_0
   - numba=0.50.1=py37h0573a6f_1
   - numpy=1.18.1=py37h4f9e942_0
@@ -91,7 +103,7 @@ dependencies:
   - olefile=0.46=py37_0
   - opencv=4.1.0=py37h5517eff_4
   - openh264=1.8.0=hdbcaa40_1000
-  - openssl=1.1.1g=h516909a_1
+  - openssl=1.1.1h=h7b6447c_0
   - pandas=1.0.3=py37h0573a6f_0
   - pandoc=2.2.3.2=0
   - pandocfilters=1.4.2=py37_1
@@ -109,13 +121,15 @@ dependencies:
   - prompt_toolkit=3.0.4=0
   - ptyprocess=0.6.0=py37_0
   - pybind11=2.5.0=py37h99015e2_0
+  - pycparser=2.20=py_2
   - pygments=2.6.1=py_0
+  - pyopenssl=19.1.0=py_1
   - pyqt=5.9.2=py37h05f1152_2
   - pyrsistent=0.16.0=py37h7b6447c_0
+  - pysocks=1.7.1=py37_1
   - python=3.7.7=hcf32534_0_cpython
   - python-dateutil=2.8.1=py_0
   - python_abi=3.7=1_cp37m
-  - pytorch=1.5.0=py3.7_cpu_0
   - pytz=2020.1=py_0
   - pyyaml=5.3.1=py37h8f50634_0
   - pyzmq=18.1.1=py37he6710b0_0
@@ -124,11 +138,12 @@ dependencies:
   - qtpy=1.9.0=py_0
   - readline=8.0=h7b6447c_0
   - retrying=1.3.3=py37_2
+  - rhash=1.4.0=h1ba5d50_0
   - scikit-video=1.1.11=pyh24bf2e0_0
   - send2trash=1.5.0=py37_0
-  - setuptools=46.2.0=py37_0
+  - setuptools=49.6.0=py37_0
   - sip=4.19.8=py37hf484d3e_0
-  - six=1.14.0=py37_0
+  - six=1.15.0=py_0
   - sqlite=3.31.1=h62c20be_1
   - tabulate=0.8.7=pyh9f0ad1d_0
   - tbb=2020.0=hfd86e86_0
@@ -136,10 +151,10 @@ dependencies:
   - terminado=0.8.3=py37_0
   - testpath=0.4.4=py_0
   - tk=8.6.8=hbc83047_0
-  - torchvision=0.6.0=py37_cpu
   - tornado=6.0.4=py37h7b6447c_1
   - tqdm=4.48.2=pyh9f0ad1d_0
   - traitlets=4.3.3=py37_0
+  - typing_extensions=3.7.4.3=py_0
   - wcwidth=0.1.9=py_0
   - webencodings=0.5.1=py37_1
   - wheel=0.34.2=py37_0
@@ -153,39 +168,60 @@ dependencies:
   - zlib=1.2.11=h7b6447c_3
   - zstd=1.3.7=h0b5b093_0
   - pip:
+    - absl-py==0.10.0
     - appdirs==1.4.4
     - black==19.10b0
-    - chardet==3.0.4
+    - cachetools==4.1.1
     - click==7.1.2
     - cycler==0.10.0
     - engineering-notation==0.6.0
+    - esim-py==0.0.1
+    - filelock==3.0.12
     - flake8==3.8.2
     - flake8-bugbear==20.1.4
     - flake8-comprehensions==3.2.2
-    - future==0.18.2
+    - gdown==3.12.2
+    - google-auth==1.21.1
+    - google-auth-oauthlib==0.4.1
+    - grpcio==1.32.0
     - idna==2.9
     - imagecodecs==2020.2.18
     - imageio==2.8.0
+    - imath==0.0.1
+    - imutils==0.5.3
     - isort==4.3.21
     - kiwisolver==1.2.0
+    - markdown==3.2.2
     - matplotlib==3.2.1
     - mccabe==0.6.1
     - networkx==2.4
+    - oauthlib==3.1.0
     - opencv-python==4.3.0.36
     - packaging==20.3
     - pathspec==0.8.0
     - pooch==1.1.0
+    - protobuf==3.13.0
+    - pyasn1==0.4.8
+    - pyasn1-modules==0.2.8
     - pycodestyle==2.6.0
     - pyflakes==2.2.0
     - pyparsing==2.4.7
+    - pytorch3d==0.2.5
     - pywavelets==1.1.1
     - regex==2020.5.14
     - requests==2.23.0
+    - requests-oauthlib==1.3.0
+    - rsa==4.6
     - scikit-image==0.17.1
     - scipy==1.4.1
+    - tensorboard==2.3.0
+    - tensorboard-plugin-wit==1.7.0
     - tifffile==2020.5.11
     - toml==0.10.1
+    - torch==1.6.0
+    - torchvision==0.7.0
     - typed-ast==1.4.1
     - urllib3==1.25.9
+    - werkzeug==1.0.1
 prefix: /home/alexis/anaconda3/envs/pytorch3d
 
