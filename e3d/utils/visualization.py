@@ -151,6 +151,86 @@ def visualize_vid2e_events(events, resolution):
 
     plt.imshow(image_rgb)
     plt.show()
+    
+
+def plot_img_and_mask(img, mask):
+    
+    plt.subplot(121)
+    plt.imshow(img)
+    plt.subplot(122)
+    plt.imshow(mask)
+    
+    plt.show()
+    
+
+def get_camera_wireframe(scale: float = 0.3):
+    """
+    Returns a wireframe of a 3D line-plot of a camera symbol.
+    """
+    a = 0.5 * torch.tensor([-2, 1.5, 4])
+    b = 0.5 * torch.tensor([2, 1.5, 4])
+    c = 0.5 * torch.tensor([-2, -1.5, 4])
+    d = 0.5 * torch.tensor([2, -1.5, 4])
+    C = torch.zeros(3)
+    F = torch.tensor([0, 0, 3])
+    camera_points = [a, b, d, c, a, C, b, d, C, c, C, F]
+    lines = torch.stack([x.float() for x in camera_points]) * scale
+    return lines
+
+
+def plot_cameras(ax, cameras, color: str = "blue", width: float=.3):
+    """
+    Plots a set of `cameras` objects into the maplotlib axis `ax` with
+    color `color`.
+    """
+    cam_wires_canonical = get_camera_wireframe().cuda()[None]
+    cam_trans = cameras.get_world_to_view_transform().inverse()
+    cam_wires_trans = cam_trans.transform_points(cam_wires_canonical)
+    plot_handles = []
+    for wire in cam_wires_trans:
+        # the Z and Y axes are flipped intentionally here!
+        x_, z_, y_ = wire.detach().cpu().numpy().T.astype(float)
+        (h,) = ax.plot(x_, y_, z_, color=color, linewidth=width)
+        plot_handles.append(h)
+    return plot_handles
+
+
+def plot_trajectory_cameras(cameras, obj_cam, color: str = "blue"):
+    """
+    Plots a set of `cameras` objects into the maplotlib axis `ax` with
+    color `color`.
+    """
+    fig = plt.figure()
+    ax = fig.gca(projection="3d")
+    
+    ax.clear()
+    ax.set_title("Cameras")
+    plot_handles = plot_cameras(ax, cameras, color="blue", width=.5)
+    #plot_handles_obj = plot_cameras(ax, obj_cam, color="red", width=.7)
+    plot_radius = 4
+    ax.set_xlim3d([-plot_radius, plot_radius])
+    ax.set_ylim3d([3 - plot_radius, 3 + plot_radius])
+    ax.set_zlim3d([-plot_radius, plot_radius])
+    
+    labels_handles = {
+        "Cameras": plot_handles[0]
+    }
+    ax.legend(
+        labels_handles.values(),
+        labels_handles.keys(),
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0),
+    )
+    # Hide grid lines
+    ax.grid(False)
+
+    # Hide axes ticks
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_zticks([])
+    #plt.axes('off')
+    plt.show()
+    
 
     
 

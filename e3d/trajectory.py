@@ -8,7 +8,9 @@ from pytorch3d.transforms import (
     Rotate, Translate, RotateAxisAngle, Transform3d
 )
 
-from utils.shape import SphericalSpiral
+
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 """
@@ -89,8 +91,7 @@ def cam_trajectory(
     variation: list, 
     pepper: list,
     random_start: list,
-    batch_size: int,
-    device: str
+    batch_size: int
     ):
     """
     Generates camera poses with given parameters:
@@ -99,10 +100,10 @@ def cam_trajectory(
         -random_start ["dist","elev","azim"] #generate a random start point):
     
     """
-    dist = 1.75 if not "dist" in random_start else random.randint(135,200) / 100
+    dist = 1.8 if not "dist" in random_start else random.randint(170,190) / 100
     elev = 35 if not "elev" in random_start else random.choice([random.randint(-55, -20), random.randint(20, 60)])
     if not "azim" in random_start:
-        azim_range = [0, 360]
+        azim_range = [0, 300]
     else:
         random_azim_start = random.randint(0, 360)
         azim_range = [random_azim_start, random_azim_start + 360]
@@ -111,14 +112,14 @@ def cam_trajectory(
     elev = torch.tensor([elev] * batch_size)
     #Adds continuous variation along this axis
     if "dist" in variation:
-        trajectory_variation(dist, (5, 40), 100)
+        trajectory_variation(dist, (5, 15), 100)
     if "elev" in variation:
-        trajectory_variation(elev, (5, 15), 1) 
+        trajectory_variation(elev, (5, 20), 1) 
     if "dist" in pepper:
         trajectory_pepper(dist, (3, 5), 500)
     if "elev" in pepper:
         trajectory_pepper(elev, (10, 20), 100)
-    
+        
     azim = torch.linspace(azim_range[0], azim_range[1], batch_size)
     
     R, T = look_at_view_transform(dist=dist, elev=elev, azim=azim, device=device)

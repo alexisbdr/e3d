@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 import torch.nn.functional as F
 
@@ -14,6 +15,7 @@ class UNet(nn.Module):
     """
     def __init__(self, n_channels, n_classes, bilinear=True):
         super(UNet, self).__init__()
+        
         self.n_channels = n_channels
         self.n_classes = n_classes
         self.bilinear = bilinear
@@ -31,6 +33,7 @@ class UNet(nn.Module):
         self.outc = OutConv(64, n_classes)
 
     def forward(self, x):
+        x = x.float()
         x1 = self.inc(x)
         x2 = self.down1(x1)
         x3 = self.down2(x2)
@@ -42,4 +45,25 @@ class UNet(nn.Module):
         x = self.up4(x, x1)
         logits = self.outc(x)
         return logits
+    
+            
+    @classmethod
+    def load(cls, params):
+        """Method for loading the UNet either from a dict or from params
+        """
+        net = cls(
+            params.n_channels, 
+            params.n_classes,
+            params.bilinear
+        )
+        if params.model_cpt:
+            checkpoint = torch.load(params.model_cpt, map_location=params.device)
+            net.load_state_dict(checkpoint['model'])
+        
+        net.to(device=params.device)
+        
+        return net
+    
+        
+        
     

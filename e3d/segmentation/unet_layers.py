@@ -12,6 +12,7 @@ class DoubleConv(nn.Module):
         super().__init__()
         if not mid_channels:
             mid_channels = out_channels
+        
         self.double_conv = nn.Sequential(
             nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
             nn.BatchNorm2d(mid_channels),
@@ -20,10 +21,15 @@ class DoubleConv(nn.Module):
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
+        
+        #self.input_conv = nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1)
+        #self.input_bn = nn.BatchNorm2d(mid_channels)
+        #self.output_conv = nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1)
+        #self.output_bn = nn.BatchNorm2d(out_channels)
 
     def forward(self, x):
+        #return F.relu(self.output_bn(self.output_conv(F.relu(self.input_bn(self.input_conv(x))))))
         return self.double_conv(x)
-
 
 class Down(nn.Module):
     """Downscaling with maxpool then double conv"""
