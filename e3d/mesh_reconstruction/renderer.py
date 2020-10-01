@@ -3,9 +3,13 @@ from pytorch3d.renderer import (
     BlendParams, SoftSilhouetteShader, HardPhongShader, PointLights
 )
 
+"""
+A set of functional interfaces for creating pytorch3d renderers
+TODO: need to move values to params
+"""
 
-def create_renderers():
-    cameras = SfMPerspectiveCameras(device=device)
+
+def silhouette_renderer(img_size: tuple):
 
     # To blend the 100 faces we set a few parameters which control the opacity and the sharpness of 
     # edges. Refer to blending.py for more details. 
@@ -25,25 +29,38 @@ def create_renderers():
     # Create a silhouette mesh renderer by composing a rasterizer and a shader. 
     silhouette_renderer = MeshRenderer(
         rasterizer=MeshRasterizer(
-            cameras=cameras, 
             raster_settings=raster_settings
         ),
         shader=SoftSilhouetteShader(blend_params=blend_params)
     )
 
+    return silhouette_renderer
 
+
+def flat_renderer(img_size: tuple):
+    
     # We will also create a phong renderer. This is simpler and only needs to render one face per pixel.
     raster_settings = RasterizationSettings(
-        image_size=RenderParams.img_size[0], 
-        blur_radius=0.0, 
-        faces_per_pixel=100, 
+        image_size=img_size[0], 
+        blur_radius=1e-5, 
+        faces_per_pixel=1, 
     )
+    
     # We can add a point light in front of the object. 
-    lights = PointLights(device=device, location=((0., 0.0, -0.0),))
-    phong_renderer = MeshRenderer(
+    lights = PointLights(
+        device=device, 
+        location=[[3.0, 3.0, 0.0]], 
+        diffuse_color=((1.0, 1.0, 1.0),),
+        specular_color=((1.0, 1.0, 1.0),),
+    )
+    
+    flat_renderer = MeshRenderer(
         rasterizer=MeshRasterizer(
-            cameras=cameras, 
             raster_settings=raster_settings
         ),
-        shader=HardPhongShader(device=device, lights=lights, cameras=cameras)
+        shader=HardFlatShader(device=device, lights=lights)
     )
+    
+    return flat_renderer
+    
+    
