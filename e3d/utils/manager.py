@@ -1,8 +1,7 @@
 import os
-import sys
 from os.path import join, abspath, dirname
-#Move path to top level directory
-sys.path.insert(1, (abspath(join(dirname(__file__), "../"))))
+import sys
+sys.path.insert(0, abspath(join("..", dirname(__file__))))
 
 from copy import deepcopy
 from typing import List
@@ -17,7 +16,9 @@ import torch
 
 import logging
 
-from utils.pyutils import from_dict
+logging.basicConfig(level=logging.INFO, format="%(levelname)s, %(message)s")
+
+from utils.pyutils import _from_dict
 
 def default_tensor():
     return torch.tensor([])
@@ -39,13 +40,13 @@ class EventFrameManager:
 
     @property
     def _load(self):
-        if not self.file_name:
-            raise Exception("Path for event frame does not exist")
+        if not os.path.exists(self.file_name):
+            raise Exception(f"Path {self.file_name} for event frame does not exist")
         if self.extension == "npy":
             return np.load(self.file_name)
         elif self.extension == "png":
-            return torch.from_numpy(imageio.imread(self.file_name))
-
+            return Image.open(self.file_name).convert('L')
+    
     def _save(self, event_data, f_loc, sformat: str = ""):
         self.extension = sformat if sformat else self.extension
         if type(event_data) is not np.ndarray:
@@ -61,7 +62,7 @@ class EventFrameManager:
 
     @classmethod
     def from_dict(cls, dict_in):
-        return from_dict(cls, dict_in)
+        return _from_dict(cls, dict_in)
 
 @dataclass
 class ImageManager:
@@ -88,14 +89,15 @@ class ImageManager:
         return asdict(self)
 
     @property
-    def _load(self):
-        data = imageio.imread(self.image_path)
-        if self.render_type == "phong":
-            data = self.gray(data)
-        return torch.from_numpy(data)
+    def _load(self) -> Image:
+        if not os.path.exists(self.image_path):
+            raise Exception(f"Image path {self.image_path} does not exist")
+        return Image.open(self.image_path).convert('L')
 
     def gray(self, img):
-        return np.dot(img[...,:3], [0.2989, 0.5870, 0.1140])
+        if isinstance(img, np.array):
+            return np.dot(img[...,:3], [0.2989, 0.5870, 0.1140])
+        return img.convert('L')
 
     def _save(self, image_data, f_loc, img_format="png"):
         if img_format=="jpg":
@@ -127,7 +129,7 @@ class ImageManager:
 
     @classmethod
     def from_dict(cls, dict_in):
-        return from_dict(cls, dict_in)
+        return _from_dict(cls, dict_in)
 
 @dataclass
 class RenderManager:
@@ -154,8 +156,10 @@ class RenderManager:
     formatted_utc_ts: str = ""
     gif_writers: dict = field(default_factory=dict)
 
-    base_folder: str = "data/renders/"
-
+    render_folder: str = "data/renders/"
+    new_folder: str = ""
+        
+        
     def init(self):
         """Initialization step for the manager
             1. creates folder architecture on disk
@@ -165,6 +169,12 @@ class RenderManager:
         curr_struct_UTC_ts = time.gmtime(time.time())
         self.formatted_utc_ts = time.strftime("%Y-%m-%dT%H:%M:%S")
 
+        #Construct absolute
+        curr_path = __file__
+        path_to_e3d = dirname(dirname(curr_path))
+        self.base_folder = join(path_to_e3d, self.render_folder, self.new_folder)
+        os.makedirs(self.base_folder, exist_ok = True)
+  
         nums = [0]
         for f in os.listdir(self.base_folder):
             try:
@@ -191,31 +201,65 @@ class RenderManager:
 
     @property
     def allowed_render_types(self):
-        return ["silhouette", "phong", "textured", "events"]
+        return ["silhouette", "phong", "textured", "events", "silhouette_pred"]
 
-    def open_gif_writer(self, t: str, duration: float = .2):
+    def open_gif_writer(self, t: str, duration: float = .1):
+
         if t in self.gif_writers:
             return
         gif_t_loc = join(self.folder_locs[t], f"camera_simulation_{t}.gif")
         gif_t_writer = imageio.get_writer(gif_t_loc, mode="I", duration=duration)
         self.gif_writers[t] = gif_t_writer
 
-    def _images(self, type_key:str = "phong") -> list:
-        #Returns a huge list of rendered images, use with caution
-        images_data = []
-        for img_dict in self.images[type_key]:
-            img = deepcopy(img_dict)
-            img_manager = ImageManager.from_dict(img_dict)
-            img_data = img_manager._load
-            images_data.append(img_data)
+    def __len__(self):
+        return self.count
+
+    def get_image(self, type_key: str, index: int, img_size: tuple = (0, 0)) -> Image:
+        """Returns a torch tensor of the loaded image at the given index
+        """
+        assert index >= 0 and index <= self.count, \
+            f'Index {index} out of bounds for image type {type_key}'
+        assert type_key in self.images, \
+            f'Incorrect Type {type_key}'
+        img_dict = deepcopy(self.images[type_key][index])
+        img_manager = ImageManager.from_dict(img_dict)
+        image = img_manager._load
+        if img_size[0]:
+            image = image.resize(img_size)
+        return image
+       
+
+    def _images(self, type_key:str = "phong", img_size: tuple = (0, 0)) -> list:
+        """Returns a stacked tensor of image tensors
+        """
+        images_data = [
+            torch.from_numpy(
+                np.array(self.get_image(type_key, num, img_size)))
+            for num in range(self.count)]
         return torch.stack(images_data)
 
-    def _events(self) -> list:
-        event_data = []
-        for event_dict in self.images["events"]:
-            event = deepcopy(event_dict)
-            event_manager = EventFrameManager.from_dict(event_dict)
-            event_data.append(event_manager._load)
+    def get_event_frame(self, index: int, img_size: tuple = (0, 0)) -> Image:
+        """Returns a torch tensor of the loaded event frame at the given index
+        """
+        assert index >= 0 and index <= self.count, \
+            f'Index {index} out of bounds for events'
+        event_dict = deepcopy(self.images["events"][index])
+        event_manager = EventFrameManager.from_dict(event_dict)
+        event_frame = event_manager._load
+        if img_size[0]:
+            event_frame = event_frame.resize(img_size)
+        return event_frame
+
+    def _events(self, img_size: tuple = (0, 0)) -> list:
+        """Returns torch tensor of event frames for the given key
+        """
+        assert "events" in self.images, \
+            "No events available for this Render Manager"
+        event_data = [
+            torch.from_numpy(
+                np.array(self.get_event_frame(num))) 
+            for num in range(len(self.images["events"]))]
+
         return torch.stack(event_data)
 
     def add_images(self, count, imgs_data, R, T):
@@ -244,8 +288,53 @@ class RenderManager:
         else:
             self.R.append(R)
             self.T.append(T)
+    
+    def add_pred(self, num, pred, type_key: str):
+        """Adds predictions to the manager
+            Predictions can be either: mask predictions, predicted renders (supported for the time being)
+            num goes from 0 - n 
+        """
+        #First create a folder for the pred
+        assert type_key in self.images.keys(), \
+            "Render Manager does not recognize this render type"
+        
+        folder_name = f"{type_key}_pred"
+        
+        if folder_name not in self.folder_locs:
+            self.folder_locs[folder_name] = join(self.folder_locs['base'], folder_name)
+            try:
+                os.mkdir(self.folder_locs[folder_name])
+            except FileExistsError:
+                print("File already exists - continuing")
+            self.open_gif_writer(folder_name)
+        elif folder_name in self.folder_locs and num == 0:
+            self.images[folder_name] = []
+            del self.gif_writers[folder_name]
+            self.open_gif_writer(folder_name)
+        
+        if folder_name not in self.images:
+            self.images[folder_name] = []
+        
+        R = self.images[type_key][num]["R"]
+        T = self.images[type_key][num]["T"]
+
+        img_manager = ImageManager(
+            posn=num+1,
+            render_type = folder_name,
+            R=R, 
+            T=T
+        )
+        img_manager._save(pred, self.folder_locs[folder_name])
+        img = img_as_ubyte(pred)
+        self.gif_writers[folder_name].append_data(pred)
+        #Append to images list
+        self.images[folder_name].append(img_manager._dict)
+        
 
     def add_event_frame(self, count, frame):
+        assert "events" in self.images.keys(),\
+            "Render Manager does not possess event config"
+
         event_manager = EventFrameManager(count, extension="png")
         event_manager._save(frame, self.folder_locs["events"])
         frame = img_as_ubyte(frame)
@@ -261,35 +350,52 @@ class RenderManager:
     def close(self):
         #close writers
         for key, gw in self.gif_writers.items():
+            if isinstance(gw, str):
+                continue
+
             gw.close()
             self.gif_writers[key] = join(self.folder_locs[key], f"camera_simulation_{key}.gif")
         #generate json file for the render
         json_dict = self._dict()
         json_file = join(self.folder_locs['base'], "info.json")
         with open(json_file, mode="w") as f:
-            json.dump(json_dict, f)
+            json.dump(json_dict, f)   
 
     @classmethod
-    def from_directory(cls, dir_num: int = None):
+    def from_path(cls, path:str):
+        """
+        Loads manager from absolute path to render_directory
+        """
+        path_to_json = join(path, "info.json")
+        if not os.path.exists(path_to_json) or not os.path.isdir(path):
+            raise FileNotFoundError(f"Incorrect path given to from_path, please check that {path} is the correct path to the render directory you're looking for")
+        with open(path_to_json, 'r') as f:
+            json_dict = json.load(f)
+            ret = _from_dict(cls, json_dict)
+        return ret
+    
+    @classmethod
+    def from_directory(cls, dir_num: int = None, render_folder: str = ""):
         """
         Finds the most recent valid render directory or the one specified by "dir_num"
         Returns a instantiated class from that folder
         """
-        directory_paths = sorted(os.listdir("data/renders/"), reverse=True)
+        if render_folder:
+            cls.render_folder = render_folder
+        file_path = __file__
+        path_to_e3d = dirname(dirname(file_path))
+        render_folder = join(path_to_e3d, cls.render_folder)
+        directory_paths = sorted(os.listdir(render_folder), reverse=True)
         for p in directory_paths:
             #Check if the info.json file is present in that directory
-            full_path = join("data/renders/", p)
+            full_path = join(render_folder, p)
             path_to_json = join(full_path, "info.json")
-            if not os.path.exists(path_to_json):
+            if not os.path.exists(path_to_json) or os.path.isfile(full_path):
                 continue
             num = int(p.split("-")[0])
             if dir_num is None or dir_num == num:
                 break
         with open(path_to_json, 'r') as f:
             json_dict = json.load(f)
-            ret = from_dict(cls, json_dict)
-            #ret.images = json_dict['images']
+            ret = _from_dict(cls, json_dict)       
         return ret
-
-
-
