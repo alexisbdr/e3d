@@ -175,12 +175,10 @@ dependencies:
     - click==7.1.2
     - cycler==0.10.0
     - engineering-notation==0.6.0
-    - esim-py==0.0.1
     - filelock==3.0.12
     - flake8==3.8.2
     - flake8-bugbear==20.1.4
     - flake8-comprehensions==3.2.2
-    - gdown==3.12.2
     - google-auth==1.21.1
     - google-auth-oauthlib==0.4.1
     - grpcio==1.32.0
@@ -206,7 +204,6 @@ dependencies:
     - pycodestyle==2.6.0
     - pyflakes==2.2.0
     - pyparsing==2.4.7
-    - pytorch3d==0.2.5
     - pywavelets==1.1.1
     - regex==2020.5.14
     - requests==2.23.0
@@ -218,8 +215,6 @@ dependencies:
     - tensorboard-plugin-wit==1.7.0
     - tifffile==2020.5.11
     - toml==0.10.1
-    - torch==1.6.0
-    - torchvision==0.7.0
     - typed-ast==1.4.1
     - urllib3==1.25.9
     - werkzeug==1.0.1

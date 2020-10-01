@@ -9,6 +9,7 @@ from segmentation.unet_layers import (
     OutConv
 )
 
+
 class UNet(nn.Module):
     """ 
     https://github.com/milesial/Pytorch-UNet/blob/master/unet/unet_model.py
