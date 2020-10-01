@@ -230,7 +230,7 @@ def plot_trajectory_cameras(cameras, obj_cam, color: str = "blue"):
     ax.set_zticks([])
     #plt.axes('off')
     plt.show()
-    
+
 
     
 

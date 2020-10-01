@@ -1,9 +1,7 @@
 # Data stuff
 e3d/data/*
 e3d/runs/*
-data/renders/
-data/meshes/
-data/dump/
+
 *.png
 *.gif
 *.pem

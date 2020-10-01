@@ -2,7 +2,6 @@ import os
 from os.path import join, abspath, dirname
 import sys
 sys.path.insert(0, abspath(join("..", dirname(__file__))))
-#print(sys.path)
 
 from copy import deepcopy
 from typing import List
@@ -16,10 +15,10 @@ from skimage import img_as_ubyte
 import torch
 
 import logging
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s, %(message)s")
 
 from utils.pyutils import _from_dict
-
 
 def default_tensor():
     return torch.tensor([])
@@ -47,7 +46,7 @@ class EventFrameManager:
             return np.load(self.file_name)
         elif self.extension == "png":
             return Image.open(self.file_name).convert('L')
-
+    
     def _save(self, event_data, f_loc, sformat: str = ""):
         self.extension = sformat if sformat else self.extension
         if type(event_data) is not np.ndarray:
@@ -205,6 +204,7 @@ class RenderManager:
         return ["silhouette", "phong", "textured", "events", "silhouette_pred"]
 
     def open_gif_writer(self, t: str, duration: float = .1):
+
         if t in self.gif_writers:
             return
         gif_t_loc = join(self.folder_locs[t], f"camera_simulation_{t}.gif")
@@ -259,6 +259,7 @@ class RenderManager:
             torch.from_numpy(
                 np.array(self.get_event_frame(num))) 
             for num in range(len(self.images["events"]))]
+
         return torch.stack(event_data)
 
     def add_images(self, count, imgs_data, R, T):
@@ -333,6 +334,7 @@ class RenderManager:
     def add_event_frame(self, count, frame):
         assert "events" in self.images.keys(),\
             "Render Manager does not possess event config"
+
         event_manager = EventFrameManager(count, extension="png")
         event_manager._save(frame, self.folder_locs["events"])
         frame = img_as_ubyte(frame)
@@ -350,14 +352,14 @@ class RenderManager:
         for key, gw in self.gif_writers.items():
             if isinstance(gw, str):
                 continue
+
             gw.close()
             self.gif_writers[key] = join(self.folder_locs[key], f"camera_simulation_{key}.gif")
         #generate json file for the render
         json_dict = self._dict()
         json_file = join(self.folder_locs['base'], "info.json")
         with open(json_file, mode="w") as f:
-            json.dump(json_dict, f)
-   
+            json.dump(json_dict, f)   
 
     @classmethod
     def from_path(cls, path:str):
@@ -371,8 +373,7 @@ class RenderManager:
             json_dict = json.load(f)
             ret = _from_dict(cls, json_dict)
         return ret
-       
-        
+    
     @classmethod
     def from_directory(cls, dir_num: int = None, render_folder: str = ""):
         """
@@ -396,12 +397,5 @@ class RenderManager:
                 break
         with open(path_to_json, 'r') as f:
             json_dict = json.load(f)
-            ret = _from_dict(cls, json_dict)
-            #ret.images = json_dict['images']
+            ret = _from_dict(cls, json_dict)       
         return ret
-
-
-
-
-
-

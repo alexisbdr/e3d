@@ -36,7 +36,6 @@ class DiceCoeffLoss(nn.Module):
         t = (2 * inter.float() + self.eps) / union.float()
         return t
 
-
 class LaplacianLoss(nn.Module):
     def __init__(self, vertex, faces, average=False):
         super(LaplacianLoss, self).__init__()
