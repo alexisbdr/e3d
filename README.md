@@ -11,7 +11,7 @@
 * [fvcore]
 * [CUDA 9.2+ (optional)]
 
-Install Pytorch3d & other dependencies: 
+Install Pytorch3d & other dependencies:
 ```
 conda create -n pytorch3d python=3.7 --file requirements.txt
 conda activate pytorch3d
@@ -35,7 +35,7 @@ pip install pytorch3d
 * [Deep Learning Base AMI](https://aws.amazon.com/marketplace/pp/B07Y3VDBNS)
 * Instance Type:
     * testing: g4dn.xlarge
-* Storage: 
+* Storage:
     * 50Gb of ssd
 
 ### OPTION 1 - [DOCKER]()
@@ -51,7 +51,7 @@ docker run **WAIT**
 cd /tmp
 curl -O https://repo.anaconda.com/archive/Anaconda3-2020.02-Linux-x86_64.sh
 
-## Check the sum 
+## Check the sum
 sha256sum Anaconda3-2020.02-Linux-x86_64.sh
 
 ## Run the script and answer 'yes' to everything
@@ -63,7 +63,7 @@ bash Anaconda3-2020.02-Linux-x86_64.sh
 source activate pytorch3d
 ```
 Follow instructions above for installing Pytorch3d
-    
+
 #### 3. Clone the repo
 ```
 git clone https://github.com/alexisbdr/E3D

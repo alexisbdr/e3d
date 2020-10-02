@@ -1,22 +1,17 @@
 import torch
-from torch import nn
 import torch.nn.functional as F
-
-from segmentation.unet_layers import (
-    Up,
-    Down,
-    DoubleConv,
-    OutConv
-)
+from segmentation.unet_layers import DoubleConv, Down, OutConv, Up
+from torch import nn
 
 
 class UNet(nn.Module):
-    """ 
+    """
     https://github.com/milesial/Pytorch-UNet/blob/master/unet/unet_model.py
     """
+
     def __init__(self, n_channels, n_classes, bilinear=True):
         super(UNet, self).__init__()
-        
+
         self.n_channels = n_channels
         self.n_classes = n_classes
         self.bilinear = bilinear
@@ -46,25 +41,16 @@ class UNet(nn.Module):
         x = self.up4(x, x1)
         logits = self.outc(x)
         return logits
-    
-            
+
     @classmethod
     def load(cls, params):
         """Method for loading the UNet either from a dict or from params
         """
-        net = cls(
-            params.n_channels, 
-            params.n_classes,
-            params.bilinear
-        )
+        net = cls(params.n_channels, params.n_classes, params.bilinear)
         if params.model_cpt:
             checkpoint = torch.load(params.model_cpt, map_location=params.device)
-            net.load_state_dict(checkpoint['model'])
-        
+            net.load_state_dict(checkpoint["model"])
+
         net.to(device=params.device)
-        
+
         return net
-    
-        
-        
-    

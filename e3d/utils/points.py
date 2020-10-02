@@ -1,9 +1,9 @@
-from dataclasses import dataclass, astuple, asdict
 from abc import ABC, abstractmethod
+from dataclasses import asdict, astuple, dataclass
+
 
 @dataclass
 class Point(ABC):
-
     @property
     def _tuple(self) -> tuple:
         return astuple(self)
@@ -12,6 +12,7 @@ class Point(ABC):
     def _dict(self) -> dict:
         return asdict(self)
 
+
 @dataclass
 class Point2D(Point):
 
@@ -19,9 +20,9 @@ class Point2D(Point):
     y: float = 0.0
 
     def __post_init__(self):
-        if not isinstance(self.x, float) or\
-                not isinstance(self.y, float):
+        if not isinstance(self.x, float) or not isinstance(self.y, float):
             raise TypeError("Point2D: Point Coordinates should be float")
+
 
 @dataclass
 class Point3D(Point):
@@ -31,8 +32,9 @@ class Point3D(Point):
     z: float = 0.0
 
     def __post_init__(self):
-        if not isinstance(self.x, float) or\
-                not isinstance(self.y, float) or\
-                not isinstance(self.z, float):
+        if (
+            not isinstance(self.x, float)
+            or not isinstance(self.y, float)
+            or not isinstance(self.z, float)
+        ):
             raise TypeError("Point2D: Point Coordinates should be float")
-

@@ -1,40 +1,43 @@
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
 
 """
 Set of losses implemented as Pytorch nn Modules
 """
 
+
 class IOULoss(nn.Module):
-    
     def __init__(self, eps: float = 1e-6):
         super(IOULoss, self).__init__()
         self.eps = eps
 
     def forward(self, predict, target):
-        assert predict.shape[0] == target.shape[0], \
-            "Predict and target must be same shape"
+        assert (
+            predict.shape[0] == target.shape[0]
+        ), "Predict and target must be same shape"
         dims = tuple(range(predict.ndimension())[1:])
         intersect = (predict * target).sum(dims)
         union = (predict + target - predict * target).sum(dims) + self.eps
-        
-        return 1. - (intersect / union).sum() / intersect.nelement()
+
+        return 1.0 - (intersect / union).sum() / intersect.nelement()
+
 
 class DiceCoeffLoss(nn.Module):
-    
     def __init__(self, eps: float = 1e-4):
         super(DiceCoeffLoss, self).__init__()
         self.eps = eps
-    
+
     def forward(self, predict, target):
-        assert predict.shape[0] == target.shape[0], \
-           "Predict and target must be same shape"
+        assert (
+            predict.shape[0] == target.shape[0]
+        ), "Predict and target must be same shape"
         inter = torch.dot(predict.view(-1), target.view(-1))
         union = torch.sum(predict) + torch.sum(target) + self.eps
 
         t = (2 * inter.float() + self.eps) / union.float()
         return t
+
 
 class LaplacianLoss(nn.Module):
     def __init__(self, vertex, faces, average=False):
@@ -57,7 +60,7 @@ class LaplacianLoss(nn.Module):
         for i in range(self.nv):
             laplacian[i, :] /= laplacian[i, i]
 
-        self.register_buffer('laplacian', torch.from_numpy(laplacian))
+        self.register_buffer("laplacian", torch.from_numpy(laplacian))
 
     def forward(self, x):
         batch_size = x.size(0)
@@ -68,18 +71,28 @@ class LaplacianLoss(nn.Module):
             return x.sum() / batch_size
         else:
             return x
-        
+
+
 class FlattenLoss(nn.Module):
     def __init__(self, faces, average=False):
         super(FlattenLoss, self).__init__()
         self.nf = faces.size(0)
         self.average = average
-        
-        faces = faces.detach().cpu().numpy()
-        vertices = list(set([tuple(v) for v in np.sort(np.concatenate((faces[:, 0:2], faces[:, 1:3]), axis=0))]))
 
-        v0s = np.array([v[0] for v in vertices], 'int32')
-        v1s = np.array([v[1] for v in vertices], 'int32')
+        faces = faces.detach().cpu().numpy()
+        vertices = list(
+            set(
+                [
+                    tuple(v)
+                    for v in np.sort(
+                        np.concatenate((faces[:, 0:2], faces[:, 1:3]), axis=0)
+                    )
+                ]
+            )
+        )
+
+        v0s = np.array([v[0] for v in vertices], "int32")
+        v1s = np.array([v[1] for v in vertices], "int32")
         v2s = []
         v3s = []
         for v0, v1 in zip(v0s, v1s):
@@ -94,13 +107,13 @@ class FlattenLoss(nn.Module):
                         count += 1
                     else:
                         v3s.append(int(v[0]))
-        v2s = np.array(v2s, 'int32')
-        v3s = np.array(v3s, 'int32')
+        v2s = np.array(v2s, "int32")
+        v3s = np.array(v3s, "int32")
 
-        self.register_buffer('v0s', torch.from_numpy(v0s).long())
-        self.register_buffer('v1s', torch.from_numpy(v1s).long())
-        self.register_buffer('v2s', torch.from_numpy(v2s).long())
-        self.register_buffer('v3s', torch.from_numpy(v3s).long())
+        self.register_buffer("v0s", torch.from_numpy(v0s).long())
+        self.register_buffer("v1s", torch.from_numpy(v1s).long())
+        self.register_buffer("v2s", torch.from_numpy(v2s).long())
+        self.register_buffer("v3s", torch.from_numpy(v3s).long())
 
     def forward(self, vertices, eps=1e-6):
         # make v0s, v1s, v2s, v3s
@@ -145,4 +158,3 @@ class FlattenLoss(nn.Module):
             return loss.sum() / batch_size
         else:
             return loss
-

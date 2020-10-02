@@ -1,5 +1,6 @@
 from copy import deepcopy
 
+
 def _from_dict(cls, dict_in):
     mod = deepcopy(dict_in)
     use_dict = {}
