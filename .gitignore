@@ -1,6 +1,7 @@
 # Data stuff
 e3d/data/*
 e3d/runs/*
+e3d/model_checkpoints/*
 
 *.png
 *.gif

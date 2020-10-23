@@ -10,10 +10,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 from losses import DiceCoeffLoss
+from mesh_reconstruction.model import MeshDeformationModel
 from PIL import Image
-from segmentation import UNet
-from segmentation.dataset import EvMaskDataset
-from segmentation.params import Params
+from segpose import SegPoseNet, UNet
+from segpose.criterion import PoseCriterion
+from segpose.dataset import EvMaskPoseDataset
+from segpose.params import Params
 from torch import optim
 from torch.autograd import Variable
 from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
@@ -47,16 +49,6 @@ def get_args():
         default=Params.batch_size,
         help="Batch size",
         dest="batch_size",
-    )
-    parser.add_argument(
-        "-l",
-        "--learning-rate",
-        metavar="LR",
-        type=float,
-        nargs="?",
-        default=Params.learning_rate,
-        help="Learning rate",
-        dest="learning_rate",
     )
     parser.add_argument(
         "-f",
@@ -101,7 +93,7 @@ def eval_seg_net(net, loader):
 
     loss = 0
     with tqdm(total=len(loader), desc="Validation", unit="batch", leave=False) as pbar:
-        for X, y in loader:
+        for X, y, pose in loader:
             X = Variable(X).cuda()
             y = Variable(y).cuda()
             X = X.to(device=device, dtype=torch.float)
@@ -118,15 +110,16 @@ def eval_seg_net(net, loader):
     return loss
 
 
-def train(unet, params):
+def train(segpose, params):
 
     # Create Train and Val DataLoaders
     if not params.train_dir:
         raise FileNotFoundError(
             "Training directory has not been set using cli or params"
         )
+
     datasets = [
-        EvMaskDataset(dir_num + 1, params)
+        EvMaskPoseDataset(dir_num + 1, params)
         for dir_num in range(len(os.listdir(params.train_dir)) - 1)
     ]
     dataset = ConcatDataset(datasets)
@@ -142,18 +135,38 @@ def train(unet, params):
         val, batch_size=params.batch_size, shuffle=False, num_workers=8, drop_last=True
     )
 
-    optimizer = params.optimizer(
-        unet.parameters(), lr=params.learning_rate, weight_decay=1e-8, momentum=0.9
-    )
-
-    # Or Maybe just use a cross entropy loss - need to eval this
+    # Criterions
     if unet.n_classes > 1:
-        criterion = nn.CrossEntropyLoss()
+        unet_criterion = nn.CrossEntropyLoss()
     else:
-        criterion = nn.BCEWithLogitsLoss()
+        unet_criterion = nn.BCEWithLogitsLoss()
+    pose_criterion = PoseCriterion(sax=0.0, saq=params.beta, srx=0.0, srq=params.gamma)
+
+    # Optimizer
+    unet_params = segpose.unet.parameters()
+    unet_optimizer = params.unet_optimizer(
+        unet_params,
+        lr=params.unet_learning_rate,
+        weight_decay=params.unet_weight_decay,
+        momentum=params.unet_momentum,
+    )
+    if not params.train_unet:
+        for p in unet_params:
+            p.requires_grad = False
+
+    pose_parameters = list(segpose.parameters()) + list(pose_criterion.parameters())
+
+    pose_optimizer = params.pose_optimizer(
+        params=pose_parameters,
+        lr=params.pose_learning_rate,
+        weight_decay=params.pose_weight_decay,
+    )
+    if not params.train_pose:
+        for p in pose_params:
+            p.requires_grad = False
 
     writer = SummaryWriter(
-        comment=f"LR_{params.learning_rate}_EPOCHS_{params.epochs}_BS_{params.batch_size}_IMGSIZE_{params.img_size}"
+        comment=f"LR_{params.pose_learning_rate}_EPOCHS_{params.epochs}_BS_{params.batch_size}_IMGSIZE_{params.img_size}"
     )
 
     iters = []
@@ -163,34 +176,63 @@ def train(unet, params):
     step = 0
     min_loss = np.inf
 
-    unet.train()
+    segpose.train()
     for epoch in range(params.epochs):
         # logging.info(f"Starting epoch: {epoch+1}")
         with tqdm(
             total=train_size, desc=f"Epoch {epoch+1}/{params.epochs}", unit="img"
         ) as pbar:
 
-            for i, (X, y) in enumerate(train_loader):
+            for i, (ev_frame, mask_gt, pose) in enumerate(train_loader):
 
-                X = Variable(X).cuda()
-                y = Variable(y).cuda()
+                event_frame = Variable(ev_frame).cuda()
+                mask_gt = Variable(mask_gt).cuda()
 
                 # Casting variables to float
-                X = X.to(device=device, dtype=torch.float)
-                y = y.to(device=device, dtype=torch.float)
+                ev_frame = ev_frame.to(device=device, dtype=torch.float)
+                mask_gt = mask_gt.to(device=device, dtype=torch.float)
 
-                output = unet(X)
-                loss = criterion(output, y)
+                R_gt, T_gt, pose_gt = pose.values()
 
+                mask_pred, pose_pred = segpose(ev_frame)
+
+                if (
+                    step % (train_size // (10 * params.batch_size)) == 0
+                    and params.train_unet
+                ):
+                    mask_pred_m = (
+                        torch.sigmoid(output.detach().requires_grad_())
+                        > params.threshold_conf
+                    ).type(torch.uint8) * 255
+                    logging.info(f"unet output shape: {output_m.shape}")
+                    mask_pred, mesh_losses = MeshDeformationModel(
+                        device
+                    ).run_optimization(mask_pred_m, R, T, writer, step)
+                    mask_pred = mask_pred.cuda()
+                    logging.info(f"mesh defo shape: {output.shape}")
+                    writer.add_images("masks-pred-mesh-deform", output, step)
+
+                unet_loss = unet_criterion(mask_pred.requires_grad_(), mask_gt)
+                pose_loss = pose_criterion(pose_pred, pose_gt)
+                loss = unet_loss + pose_loss
+
+                writer.add_scalar("UNetLoss/Train", pose_loss.item(), step)
+                writer.add_scalar("PoseLoss/Train", pose_loss.item(), step)
                 writer.add_scalar("Loss/Train:", loss.item(), step)
                 pbar.set_postfix(**{"loss (batch)": loss.item()})
 
-                optimizer.zero_grad()
-                loss.backward()
-                nn.utils.clip_grad_value_(unet.parameters(), 0.1)
-                optimizer.step()
+                unet_optimizer.zero_grad()
+                pose_optimizer.zero_grad()
 
-                pbar.update(X.shape[0])
+                loss.backward()
+
+                nn.utils.clip_grad_value_(segpose.unet.parameters(), 0.1)
+                # nn.utils.clip_grad_norm(pose_params, )
+
+                unet_optimizer.step()
+                pose_optimizer.step()
+
+                pbar.update(ev_frame.shape[0])
 
                 step += 1
                 if step % (train_size // (10 * params.batch_size)) == 0:
@@ -208,23 +250,30 @@ def train(unet, params):
                     train_losses.append(loss)
 
                     writer.add_scalar(
-                        "learning_rate", optimizer.param_groups[0]["lr"], step
+                        "unet_learning_rate", unet_optimizer.param_groups[0]["lr"], step
+                    )
+                    writer.add_scalar(
+                        "pose_learning_rate", pose_optimizer.param_groups[0]["lr"], step
                     )
 
-                    unet.eval()
-                    val_loss = eval_seg_net(unet, val_loader)
-                    unet.train()
+                    segpose.eval()
+                    val_loss = eval_seg_net(segpose.unet, val_loader)
+                    segpose.train()
                     val_losses.append(val_loss)
 
                     writer.add_scalar("DiceCoeff: ", val_loss, step)
 
-                    writer.add_images("images", X, step)
-                    writer.add_images("masks-gt", y, step)
-                    writer.add_images("masks-pred", torch.sigmoid(output) > 0.5, step)
+                    writer.add_images("images", ev_frame, step)
+                    writer.add_images("masks-gt", mask_gt, step)
+                    writer.add_images(
+                        "masks-pred",
+                        torch.sigmoid(mask_pred) > params.threshold_conf,
+                        step,
+                    )
 
     torch.save(
         {"model": unet.state_dict(), "optimizer": optimizer.state_dict()},
-        "dolphin_model_checkpoint.cpt",
+        "epochs15_batch4_end_dolphin.cpt",
     )
 
 
@@ -233,8 +282,8 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     # Set the device
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    if device == "cuda:0":
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    if device == "cuda:1":
         torch.cuda.set_device()
 
     args = get_args()
@@ -245,10 +294,12 @@ if __name__ == "__main__":
     logging.info(f"Using {device} as computation device")
 
     try:
-        model = UNet.load(params)
+        unet = UNet.load(params)
+        segpose_model = SegPoseNet(unet, params)
+        logging.info(segpose_model)
         logging.info(f"Loaded UNet Model from {params.model_cpt}- Starting training")
-        train(model, params)
+        train(segpose_model, params)
     except KeyboardInterrupt:
         interrupted_path = "Interrupted.pth"
         logging.info(f"Received Interrupt, saving model at {interrupted_path}")
-        torch.save({"model": model.state_dict()}, interrupted_path)
+        torch.save({"model": segpose_model.state_dict()}, interrupted_path)

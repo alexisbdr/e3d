@@ -7,6 +7,14 @@ Set of losses implemented as Pytorch nn Modules
 """
 
 
+class QuaternionLoss(nn.Module):
+    def __init__(self):
+        super(QuaternionLoss, self).__init__()
+
+    def forward(self, predict, target):
+        return None
+
+
 class IOULoss(nn.Module):
     def __init__(self, eps: float = 1e-6):
         super(IOULoss, self).__init__()

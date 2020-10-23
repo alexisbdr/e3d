@@ -156,7 +156,9 @@ class RenderManager:
 
     # List of render types
     types: list = field(default_factory=list)
+    # Stored data
     metadata: dict = field(default_factory=dict)
+    pred_results: dict = field(default_factory=dict)
 
     # Internally managed
     count: int = 0  # This is a count of poses not total images
@@ -205,6 +207,14 @@ class RenderManager:
             self.open_gif_writer(t)
             self.images[t] = []
 
+    def get_trajectory_point(self, index: int) -> tuple:
+        assert (
+            index >= 0 and index < self.count
+        ), "Index out of bounds to Trajectory Points"
+        R = torch.tensor(self.R[index])
+        T = torch.tensor(self.T[index])
+        return (R, T)
+
     @property
     def _trajectory(self) -> tuple:
         R = torch.stack(([torch.tensor(r) for r in self.R]))[:, 0, :]
@@ -213,7 +223,14 @@ class RenderManager:
 
     @property
     def allowed_render_types(self):
-        return ["silhouette", "phong", "textured", "events", "silhouette_pred"]
+        return [
+            "silhouette",
+            "phong",
+            "textured",
+            "events",
+            "silhouette_pred",
+            "mesh_silhouette",
+        ]
 
     def open_gif_writer(self, t: str, duration: float = 0.1):
 
@@ -295,17 +312,17 @@ class RenderManager:
             self.R.append(R)
             self.T.append(T)
 
-    def add_pred(self, num, pred, type_key: str):
+    def add_pred(self, num, pred, type_key: str, destination: str = ""):
         """Adds predictions to the manager
             Predictions can be either: mask predictions, predicted renders (supported for the time being)
             num goes from 0 - n
         """
         # First create a folder for the pred
         assert (
-            type_key in self.images.keys()
+            type_key in self.allowed_render_types
         ), "Render Manager does not recognize this render type"
 
-        folder_name = f"{type_key}_pred"
+        folder_name = f"{destination}{type_key}_pred"
 
         if folder_name not in self.folder_locs:
             self.folder_locs[folder_name] = join(self.folder_locs["base"], folder_name)
@@ -343,11 +360,21 @@ class RenderManager:
         self.gif_writers["events"].append_data(frame)
         self.images["events"].append(event_manager._dict)
 
-    def set_metadata(self, meta):
-        self.metadata = meta
+    def set_metadata(self, meta: dict):
+        assert isinstance(meta, dict), "Metadata should be a dictionary"
+        if self.metadata:
+            self.metadata.update(meta)
+        else:
+            self.metadata = meta
+
+    def set_pred_results(self, results: dict):
+        assert isinstance(results, dict), "Results should be a dictionary"
+        self.pred_results = results
 
     def _dict(self):
-        return asdict(self)
+        my_dict = asdict(self)
+        my_dict["pred_results"] = True if self.pred_results else False
+        return my_dict
 
     def close(self):
         # close writers
@@ -364,6 +391,11 @@ class RenderManager:
         json_file = join(self.folder_locs["base"], "info.json")
         with open(json_file, mode="w") as f:
             json.dump(json_dict, f)
+
+        if self.pred_results:
+            results_file = join(self.folder_locs["base"], "reconstruction_results.json")
+            with open(results_file, mode="w") as f:
+                json.dump(self.pred_results, f)
 
     @classmethod
     def from_path(cls, path: str):

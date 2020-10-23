@@ -5,8 +5,7 @@ import torch
 from pytorch3d.renderer import look_at_rotation, look_at_view_transform
 from pytorch3d.transforms import (Rotate, RotateAxisAngle, Transform3d,
                                   Translate)
-
-from e3d.utils.shapes import SphericalSpiral
+from utils.shapes import SphericalSpiral
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 

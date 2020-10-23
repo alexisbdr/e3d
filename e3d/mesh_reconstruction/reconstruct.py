@@ -6,6 +6,7 @@ from os.path import abspath, dirname, join
 sys.path.insert(0, abspath(join("..", dirname(os.getcwd()))))
 
 import json
+import logging
 import random
 
 import matplotlib as mpl
@@ -13,20 +14,93 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
+from losses import IOULoss
+from mesh_reconstruction.model import MeshDeformationModel
+from mesh_reconstruction.params import Params
+from mesh_reconstruction.renderer import silhouette_renderer
 from pytorch3d.io import load_obj, save_obj
-from pytorch3d.renderer import (BlendParams, HardFlatShader, HardPhongShader,
-                                MeshRasterizer, MeshRenderer, PointLights,
-                                RasterizationSettings, SfMPerspectiveCameras,
-                                SoftSilhouetteShader, TexturesVertex,
-                                look_at_rotation, look_at_view_transform)
-from pytorch3d.structures import Meshes
-from pytorch3d.transforms import Rotate, Translate
-from pytorch3d.utils import ico_sphere
 from skimage import img_as_ubyte
-from tqdm import tqdm_notebook
 from utils.manager import ImageManager, RenderManager
-from utils.shapes import Sphere, SphericalSpiral
-from utils.visualization import plot_pointcloud
+
+
+def get_args():
+
+    parser = argparse.ArgumentParser(
+        description="Mesh Reconstruction",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    parser.add_argument(
+        "-b",
+        "--batch-size",
+        metavar="B",
+        type=int,
+        nargs="?",
+        default=Params.batch_size,
+        help="Batch size",
+        dest="batch_size",
+    )
+    parser.add_argument(
+        "-mini-b",
+        "--mini-batch",
+        metavar="B",
+        type=int,
+        nargs="?",
+        default=Params.mini_batch,
+        help="Mini batch Size",
+        dest="mini_batch",
+    )
+    add_argument(
+        "-lr",
+        "--learning_rate",
+        metavar="LR",
+        type=float,
+        nargs="?",
+        default=Params.learning_rate,
+        help="Learning rate",
+        dest="learning_rate",
+    )
+    parser.add_argument(
+        "--img_size",
+        dest="img_size",
+        type=float,
+        default=Params.img_size,
+        help="Downscaling factor of the images",
+    )
+    parser.add_argument(
+        "-cfg",
+        "--config",
+        dest="config_file",
+        type=str,
+        default=Params.config_file,
+        help="Load Params dict from config file, file should be in cfg format",
+    )
+    parser.add_argument(
+        "-name",
+        "--experiment_name",
+        dest="experiment_name",
+        type=str,
+        default=Params.experiment_name,
+        help="The name of the experiment to run - if ",
+    )
+    parser.add_argument(
+        "-p",
+        "--test_path",
+        dest="test_path",
+        type=str,
+        default=Params.test_path,
+        help="Path for storing test information",
+    )
+    parser.add_argument(
+        "-show",
+        "--show",
+        dest="show",
+        type=bool,
+        default=Params.test_path,
+        help="Boolean indicator on whether to plot results or not",
+    )
+
+    return parser.parse_args()
 
 
 def plot_and_save(elems: list, path: str, name: str):
@@ -39,9 +113,9 @@ def plot_and_save(elems: list, path: str, name: str):
     plt.close()
 
 
-def sample_tensor(t, batch_size, indices=None):
+def sample_tensor(t, batch_size: int = 0, indices=None):
     l = t.shape[0]
-    if l < batch_size:
+    if batch_size and l < batch_size:
         return
     if not indices:
         step = int(l / batch_size)
@@ -50,77 +124,47 @@ def sample_tensor(t, batch_size, indices=None):
     return t[indices], indices
 
 
-class MeshDeformationModel(nn.Module):
-    def __init__(self, device, template_mesh=None):
-        super().__init__()
+def generate_indices():
 
-        self.device = device
+    # Create path to tests folder
+    tests_path = "../data/tests/dolphin-sep23-baseline"
+    batch_size = int(360 / 8)  # =45
+    ratios = [0.25, 0.50, 0.75, 0.100]
+    # Fetch indices
+    with open(join(tests_path, "indices.json"), "r") as f:
+        indices = json.load(f)
+    # Generate all the good indices and create sets of experiments
+    experiments = {}
+    good_indices = set(range(360)) - set(
+        [elem for ind in indices.values() for elem in ind]
+    )
+    for name, ind in indices.items():
+        if name == "outliers":
+            continue
+        for ratio in ratios:
+            num_clean = int((1 - ratio) * batch_size)
+            num_noisy = batch_size - num_clean
 
-        # Create a source mesh
-        if not template_mesh:
-            template_mesh = ico_sphere(2, device)
+            ind_clean = sorted(random.choices(list(good_indices), k=num_clean))
+            ind_noisy = sorted(random.choices(ind, k=num_noisy))
 
-        verts, faces = template_mesh.get_mesh_verts_faces(0)
-        # Initialize each vert to have no tetxture
-        verts_rgb = torch.ones_like(verts)[None]
-        textures = TexturesVertex(verts_rgb.to(self.device))
-        self.template_mesh = Meshes(
-            verts=[verts.to(self.device)],
-            faces=[faces.to(self.device)],
-            textures=textures,
-        )
+            experiment_indices = ind_clean + ind_noisy
 
-        self.register_buffer("vertices", self.template_mesh.verts_padded() * 1.3)
-        self.register_buffer("faces", self.template_mesh.faces_padded())
-        self.register_buffer("textures", textures.verts_features_padded())
+            experiments[
+                f"{name}_{int(100*ratio)}-{100-int(100*ratio)}"
+            ] = experiment_indices
 
-        deform_verts = torch.zeros_like(
-            self.template_mesh.verts_packed(), device=device, requires_grad=True
-        )
-        # deform_verts = torch.full(self.template_mesh.verts_packed().shape, 0.0, device=device, requires_grad=True)
-        # Create an optimizable parameter for the mesh
-        self.register_parameter(
-            "deform_verts", nn.Parameter(deform_verts).to(self.device)
-        )
-
-        laplacian_loss = mesh_laplacian_smoothing(template_mesh, method="uniform")
-        flatten_loss = mesh_normal_consistency(template_mesh)
-
-    def forward(self, batch_size):
-        # Offset the mesh
-        deformed_mesh_verts = self.template_mesh.offset_verts(self.deform_verts)
-        texture = TexturesVertex(self.textures)
-        deformed_mesh = Meshes(
-            verts=deformed_mesh_verts.verts_padded(),
-            faces=deformed_mesh_verts.faces_padded(),
-            textures=texture,
-        )
-        deformed_meshes = deformed_mesh.extend(batch_size)
-
-        laplacian_loss = mesh_laplacian_smoothing(deformed_mesh, method="uniform")
-        flatten_loss = mesh_normal_consistency(deformed_mesh)
-
-        return deformed_meshes, laplacian_loss, flatten_loss
+    experiments = {}
+    experiments["best_1"] = sorted(random.choices(list(good_indices), k=batch_size))
+    experiments["best_2"] = sorted(random.choices(list(good_indices), k=batch_size))
+    experiments["best_3"] = sorted(random.choices(list(good_indices), k=batch_size))
 
 
-def run():
-
-    weight_silhouette = 1
-    weight_laplacian = 0.1
-    weight_flatten = 0.001
-
-    batch_size = int(360 / 6)  # =60
-
-    # Create a loss plotting object
-    # loss_ax = plot_loss(num_losses = 3)
-
-    # Initialize a model using the renderer, template mesh and reference image
-    model = MeshDeformationModel(device).to(device)
-
-    # Create an optimizer. Here we are using Adam and we pass in the parameters of the model
-    optimizer = torch.optim.Adam(
-        model.parameters(), lr=0.001, betas=(0.5, 0.99)
-    )  # Hyperparameter tuning
+'''
+def test(params: Params):
+    """
+    Completes a test run and saves all the relevant information
+    """
 
     # Create path to tests folder
     experiment_name = f"random_indices_{i+1}"
@@ -145,8 +189,6 @@ def run():
     images_gt = render._images(type_key="silhouette_pred", img_size=img_size).to(device)
     images_gt, _ = sample_tensor(images_gt, batch_size, indices)
 
-    cameras = SfMPerspectiveCameras(device=device, R=R, T=T)
-
     results = {}
     results["indices"] = indices
 
@@ -154,62 +196,11 @@ def run():
     filename_output = join(path, "projection_loss.gif")
     writer = imageio.get_writer(filename_output, mode="I", duration=0.1)
 
-    loop = tqdm_notebook(range(2000))
-    laplacian_losses = []
-    flatten_losses = []
-    silhouette_losses = []
+    result = run()
 
-    for i in loop:
-
-        mesh, laplacian_loss, flatten_loss = model(batch_size)
-
-        images_pred = silhouette_renderer(mesh.clone(), device=device, cameras=cameras)
-
-        silhouette_loss = neg_iou_loss(images_gt, images_pred[..., -1])
-        # ssd_loss = torch.sum((images_gt - images_pred[...,-1]) ** 2).mean()
-
-        loss = (
-            silhouette_loss * weight_silhouette
-            + laplacian_loss * weight_laplacian
-            + flatten_loss * weight_flatten
-        )
-
-        loop.set_description("Optimizing (loss %.4f)" % loss.data)
-
-        silhouette_losses.append(silhouette_loss * weight_silhouette)
-        laplacian_losses.append(laplacian_loss * weight_laplacian)
-        flatten_losses.append(flatten_loss * weight_flatten)
-
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        if i % 100 == 0:
-            # Write images
-            image = images_pred.detach().cpu().numpy()[0][..., -1]
-
-            writer.append_data((255 * image).astype(np.uint8))
-            # imageio.imsave(join(path, f"mesh_{i}.png"), (255*image).astype(np.uint8))
-
-            f, (ax1, ax2) = plt.subplots(1, 2)
-
-            image = img_as_ubyte(image)
-            ax1.imshow(image)
-            ax1.set_title("Deformed Mesh")
-
-            ax2.plot(silhouette_losses, label="Silhouette Loss")
-            ax2.plot(laplacian_losses, label="Laplacian Loss")
-            ax2.plot(flatten_losses, label="Flatten Loss")
-            ax2.legend(fontsize="16")
-            ax2.set_xlabel("Iteration", fontsize="16")
-            ax2.set_ylabel("Loss", fontsize="16")
-            ax2.set_title("Loss vs iterations", fontsize="16")
-
-            plt.show()
-
-        # Save obj, gif, individual losses, mesh similarity metric
-        verts, faces = mesh.get_mesh_verts_faces(0)
-        save_obj(join(path, "mesh.obj"), verts, faces)
+    # Save obj, gif, individual losses, mesh similarity metric
+    verts, faces = mesh.get_mesh_verts_faces(0)
+    save_obj(join(path, "mesh.obj"), verts, faces)
 
     plot_and_save(silhouette_losses, "silhouette")
     plot_and_save(laplacian_losses, "laplacian")
@@ -228,55 +219,25 @@ def run():
         json.dump(results, f)
 
     writer.close()
-
+'''
 
 if __name__ == "__main__":
 
-    # Matplotlib config nums
-    mpl.rcParams["savefig.dpi"] = 90
-    mpl.rcParams["figure.dpi"] = 90
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
     # Set the device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     if device == "cuda:0":
         torch.cuda.set_device()
 
-    img_size = (64, 64)
+    args = get_args()
+    args_dict = vars(args)
+    params = Params(**args_dict)
+    params.device = device
 
-    cameras = SfMPerspectiveCameras(device=device)
-
-    # To blend the 100 faces we set a few parameters which control the opacity and the sharpness of
-    # edges. Refer to blending.py for more details.
-    blend_params = BlendParams(sigma=1e-4, gamma=1e-4)
-
-    # Define the settings for rasterization and shading. Here we set the output image to be of size
-    # 256x256. To form the blended image we use 100 faces for each pixel. We also set bin_size and max_faces_per_bin to None which ensure that
-    # the faster coarse-to-fine rasterization method is used. Refer to rasterize_meshes.py for
-    # explanations of these parameters. Refer to docs/notes/renderer.md for an explanation of
-    # the difference between naive and coarse-to-fine rasterization.
-    raster_settings = RasterizationSettings(
-        image_size=img_size[0],
-        blur_radius=np.log(1.0 / 1e-4 - 1.0) * blend_params.sigma,
-        faces_per_pixel=100,
-    )
-
-    # Create a silhouette mesh renderer by composing a rasterizer and a shader.
-    silhouette_renderer = MeshRenderer(
-        rasterizer=MeshRasterizer(cameras=cameras, raster_settings=raster_settings),
-        shader=SoftSilhouetteShader(blend_params=blend_params),
-    )
-
-    # We will also create a phong renderer. This is simpler and only needs to render one face per pixel.
-    raster_settings = RasterizationSettings(
-        image_size=img_size[0], blur_radius=1e-5, faces_per_pixel=1,
-    )
-    # We can add a point light in front of the object.
-    lights = PointLights(
-        device=device,
-        location=[[3.0, 3.0, 0.0]],
-        diffuse_color=((1.0, 1.0, 1.0),),
-        specular_color=((1.0, 1.0, 1.0),),
-    )
-    phong_renderer = MeshRenderer(
-        rasterizer=MeshRasterizer(cameras=cameras, raster_settings=raster_settings),
-        shader=HardFlatShader(device=device, lights=lights, cameras=cameras),
-    )
+    try:
+        # test(params)
+        raise NotImplementedError
+    except KeyboardInterrupt:
+        logging.error("Received interrupt terminating test")
+        sys.exit(0)
