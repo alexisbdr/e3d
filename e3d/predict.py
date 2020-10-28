@@ -9,7 +9,7 @@ import torch
 from losses import DiceCoeffLoss, IOULoss
 from mesh_reconstruction.model import MeshDeformationModel
 from PIL import Image
-from segpose import UNet, SegPoseNet
+from segpose import SegPoseNet, UNet
 from segpose.dataset import EvMaskPoseDataset
 from segpose.params import Params
 from torch.autograd import Variable
@@ -73,11 +73,11 @@ def predict_segpose(unet: SegPoseNet, img: Image, threshold: float, img_size: tu
     ev_frame = ev_frame.unsqueeze(0).to(device=device, dtype=torch.float)
     print(ev_frame.shape)
     with torch.no_grad():
-        
+
         mask_pred, pose_pred = unet(ev_frame)
         print(mask_pred.shape)
         probs = torch.sigmoid(mask_pred).squeeze(0).cpu()
-    
+
         tf = transforms.Compose(
             [
                 transforms.ToPILImage(),

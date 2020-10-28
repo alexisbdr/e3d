@@ -7,7 +7,8 @@ from os.path import join
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-#import pyexr
+
+# import pyexr
 
 
 def get_args():
@@ -59,6 +60,7 @@ class Pano2Photo:
             cv2.waitKey(0)
         [self._height, self._width, _] = self._img.shape
 
+    """
     def init_exr(self, path: str, show: bool = False):
         self.path = path
         self.show = show
@@ -72,6 +74,7 @@ class Pano2Photo:
             cv2.imshow("pano.jpg", self._img)
             cv2.waitKey(0)
         [self._height, self._width, _] = self._img.shape
+    """
 
     def SplitToFolder(self, batch_size: int, img_size: tuple):
         """Splits the panorama into n={batch_size} images of size = {img_size}

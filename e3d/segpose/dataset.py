@@ -95,7 +95,7 @@ class EvMaskPoseDataset(Dataset):
 
 
 class EvMaskPoseBatchedDataset(Dataset):
-    def __init__(self, steps: int,  dir_num: int, params, transforms: list = []):
+    def __init__(self, steps: int, dir_num: int, params, transforms: list = []):
         """Provides a wrapper around EvMaskPoseDataset to batch the getitem call
         """
         self.steps = steps
@@ -104,7 +104,10 @@ class EvMaskPoseBatchedDataset(Dataset):
     def __getitem__(self, index: int):
         """Returns a set of items from the dataset of size 'steps'
         """
-        data = [self.dataset[i] for i in range(index * self.steps, index * self.steps + self.steps)]
+        data = [
+            self.dataset[i]
+            for i in range(index * self.steps, index * self.steps + self.steps)
+        ]
 
         out_data = []
         for elem in range(len(data[0])):

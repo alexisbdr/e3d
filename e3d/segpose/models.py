@@ -1,5 +1,5 @@
-import logging
 import itertools
+import logging
 
 import torch
 import torch.nn.functional as F
@@ -7,6 +7,7 @@ from segpose.layers import DoubleConv, Down, OutConv, Up
 from torch import nn
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
 
 class UNet(nn.Module):
     def __init__(self, n_channels, n_classes, bilinear=True):
@@ -165,15 +166,16 @@ class SegPoseNet(nn.Module):
             if name.split(".")[0] == "unet":
                 continue
             yield param
-            
-            
+
     @classmethod
     def load(cls, unet: nn.Module, params):
         """Method for loading the UNet either from a dict or from params
         """
         net = cls(unet, params)
         if params.segpose_model_cpt:
-            checkpoint = torch.load(params.segpose_model_cpt, map_location=params.device)
+            checkpoint = torch.load(
+                params.segpose_model_cpt, map_location=params.device
+            )
             net.load_state_dict(checkpoint["model"])
 
         net.to(device=params.device)

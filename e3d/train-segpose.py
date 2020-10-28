@@ -14,7 +14,7 @@ from mesh_reconstruction.model import MeshDeformationModel
 from PIL import Image
 from segpose import SegPoseNet, UNet
 from segpose.criterion import PoseCriterion
-from segpose.dataset import EvMaskPoseDataset, EvMaskPoseBatchedDataset
+from segpose.dataset import EvMaskPoseBatchedDataset, EvMaskPoseDataset
 from segpose.params import Params
 from torch import optim
 from torch.autograd import Variable
@@ -104,7 +104,7 @@ def eval_seg_net(net, loader):
             out = torch.sigmoid(out)
             out = (out > 0.5).float()
             seg_loss += DiceCoeffLoss().forward(out, y)
-            #pose_loss += PoseCriterion(sax=0.0, saq=params.beta, srx=0.0, srq=params.gamma)
+            # pose_loss += PoseCriterion(sax=0.0, saq=params.beta, srx=0.0, srq=params.gamma)
 
             pbar.update()
 
@@ -142,7 +142,9 @@ def train(segpose, params):
         unet_criterion = nn.CrossEntropyLoss()
     else:
         unet_criterion = nn.BCEWithLogitsLoss()
-    pose_criterion = PoseCriterion(sax=0.0, saq=params.beta, srx=0.0, srq=params.gamma).to(device)
+    pose_criterion = PoseCriterion(
+        sax=0.0, saq=params.beta, srx=0.0, srq=params.gamma
+    ).to(device)
 
     # Optimizer
     unet_params = segpose.unet.parameters()
@@ -196,15 +198,16 @@ def train(segpose, params):
                 mask_gt = mask_gt.to(device=device, dtype=torch.float)
 
                 mask_pred, pose_pred = segpose(ev_frame)
-                if (
-                    step % (train_size // (10 * params.batch_size)) == 1
-                    and False
-                ):
-                    mask_pred_m = (torch.sigmoid(mask_pred) > params.threshold_conf).type(torch.uint8)
+                if step % (train_size // (10 * params.batch_size)) == 1 and False:
+                    mask_pred_m = (
+                        torch.sigmoid(mask_pred) > params.threshold_conf
+                    ).type(torch.uint8)
                     writer.add_images("mask-pred-input", mask_pred_m, step)
                     R_gt_m = R_gt.view(-1, *R_gt.size()[2:]).unsqueeze(1)
                     T_gt_m = T_gt.view(-1, *T_gt.size()[2:]).unsqueeze(1)
-                    logging.info(f"unet output shape: {mask_pred_m.shape}, R shape {R_gt_m.shape}")
+                    logging.info(
+                        f"unet output shape: {mask_pred_m.shape}, R shape {R_gt_m.shape}"
+                    )
                     mask_pred, mesh_losses = MeshDeformationModel(
                         device
                     ).run_optimization(mask_pred_m, R_gt_m, T_gt_m, writer, step)
@@ -264,12 +267,14 @@ def train(segpose, params):
 
                     writer.add_scalar("DiceCoeff: ", val_loss, step)
 
-                    writer.add_images("event frame", ev_frame.view(-1, *ev_frame.size()[2:]).unsqueeze(1), step)
+                    writer.add_images(
+                        "event frame",
+                        ev_frame.view(-1, *ev_frame.size()[2:]).unsqueeze(1),
+                        step,
+                    )
                     writer.add_images("masks-gt", mask_gt, step)
                     writer.add_images(
-                        "masks-pred-probs",
-                        mask_pred,
-                        step,
+                        "masks-pred-probs", mask_pred, step,
                     )
                     writer.add_images(
                         "masks-pred",
@@ -278,7 +283,11 @@ def train(segpose, params):
                     )
 
     torch.save(
-            {"model": segpose.state_dict(), "unet_optimizer": unet_optimizer.state_dict(), "pose_optimizer": pose_optimizer.state_dict()},
+        {
+            "model": segpose.state_dict(),
+            "unet_optimizer": unet_optimizer.state_dict(),
+            "pose_optimizer": pose_optimizer.state_dict(),
+        },
         f"epochs{params.epochs}_batch{params.batch_size}_minibatch{params.mini_batch_size}_end_dolphin.cpt",
     )
 
@@ -303,7 +312,9 @@ if __name__ == "__main__":
         unet = UNet.load(params)
         segpose_model = SegPoseNet.load(unet, params)
         logging.info(segpose_model)
-        logging.info(f"Loaded UNet Model from {params.segpose_model_cpt}- Starting training")
+        logging.info(
+            f"Loaded UNet Model from {params.segpose_model_cpt}- Starting training"
+        )
         train(segpose_model, params)
     except KeyboardInterrupt:
         interrupted_path = "Interrupted.pth"
