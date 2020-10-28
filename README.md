@@ -3,7 +3,7 @@
 ## Running E3D
 
 ### Installing Pytorch3D
-* [Linux - Ubuntu16+]
+* [Linux - Ubuntu16+ or/ CentOS 7]
 * [Pytorch3D]
 * [Python 3.6+]
 * [Pytorch 1.4 or 1.5]
@@ -68,3 +68,12 @@ Follow instructions above for installing Pytorch3d
 ```
 git clone https://github.com/alexisbdr/E3D
 ```
+
+### Contributing
+Any contributions are much appreciated!!
+The repository uses pre-commit to clean the code before committing. To install run:
+```
+conda install -c conda-forge pre-commit
+pre-commit install
+```
+This should apply the pre-commit hooks. If this is your first time contributing to an open source project, follow the guidelines [here](https://github.com/firstcontributions/first-contributions) 
