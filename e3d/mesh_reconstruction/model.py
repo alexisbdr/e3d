@@ -137,7 +137,6 @@ class MeshDeformationModel(nn.Module):
                 if images_gt.shape[0] > self.params.batch_size
                 else list(range(images_gt.shape[0]))
             )
-
             batch_silhouettes = images_gt[batch_indices]
 
             batch_R, batch_T = R[batch_indices], T[batch_indices]

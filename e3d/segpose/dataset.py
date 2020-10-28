@@ -71,7 +71,7 @@ class EvMaskPoseDataset(Dataset):
         T -= cls.pose_stats()["mean_T"]
         T /= cls.pose_stats()["std_T"]
 
-        return torch.cat((T, q))
+        return torch.cat((T, logq)).unsqueeze(0)
 
     def __getitem__(self, index: int):
 
@@ -81,7 +81,6 @@ class EvMaskPoseDataset(Dataset):
 
         R, T = self.render_manager.get_trajectory_point(index)
         tq = self.preprocess_poses((R, T))
-        pose_dict = OrderedDict(R=R, T=T, tq=tq)
 
         assert mask.size == event_frame.size, "Mask and event frame must be same size"
 
@@ -92,4 +91,26 @@ class EvMaskPoseDataset(Dataset):
             self.preprocess(event_frame, self.img_size)
         ).type(torch.FloatTensor)
 
-        return event_frame, mask, pose_dict
+        return event_frame, mask, R, T, tq
+
+
+class EvMaskPoseBatchedDataset(Dataset):
+    def __init__(self, steps: int,  dir_num: int, params, transforms: list = []):
+        """Provides a wrapper around EvMaskPoseDataset to batch the getitem call
+        """
+        self.steps = steps
+        self.dataset = EvMaskPoseDataset(dir_num, params, transforms)
+
+    def __getitem__(self, index: int):
+        """Returns a set of items from the dataset of size 'steps'
+        """
+        data = [self.dataset[i] for i in range(index * self.steps, index * self.steps + self.steps)]
+
+        out_data = []
+        for elem in range(len(data[0])):
+            out_data.append(torch.cat([d[elem] for d in data], dim=0))
+
+        return out_data
+
+    def __len__(self):
+        return int(len(self.dataset) / self.steps)

@@ -12,7 +12,7 @@ class Params(ParamsBase):
 
     # Training Params
     steps: int = 2000  # optimization loop
-    batch_size: int = 4  # mesh mini batch
+    batch_size: int = 2  # mesh mini batch
 
     # Optimizer Params
     optimizer = optim.Adam

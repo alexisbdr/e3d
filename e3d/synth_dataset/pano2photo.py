@@ -7,7 +7,7 @@ from os.path import join
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-import pyexr
+#import pyexr
 
 
 def get_args():
@@ -181,6 +181,8 @@ if __name__ == "__main__":
     args = get_args()
 
     for p in os.listdir(args.path):
+        if os.path.isdir(join(args.path, p)):
+            continue
         try:
             pano2photo = Pano2Photo(join(args.path, p), show=args.show)
             pano2photo.SplitToFolder(args.batch_size, args.img_size)

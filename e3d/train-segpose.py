@@ -14,7 +14,7 @@ from mesh_reconstruction.model import MeshDeformationModel
 from PIL import Image
 from segpose import SegPoseNet, UNet
 from segpose.criterion import PoseCriterion
-from segpose.dataset import EvMaskPoseDataset
+from segpose.dataset import EvMaskPoseDataset, EvMaskPoseBatchedDataset
 from segpose.params import Params
 from torch import optim
 from torch.autograd import Variable
@@ -53,9 +53,9 @@ def get_args():
     parser.add_argument(
         "-f",
         "--load",
-        dest="model_cpt",
+        dest="segpose_model_cpt",
         type=str,
-        default=Params.model_cpt,
+        default=Params.segpose_model_cpt,
         help="Load model from a .pth file",
     )
     parser.add_argument(
@@ -91,22 +91,24 @@ def eval_seg_net(net, loader):
     Uses the DiceCoefficient loss defined in losses.py
     """
 
-    loss = 0
+    seg_loss, pose_loss = 0, 0
     with tqdm(total=len(loader), desc="Validation", unit="batch", leave=False) as pbar:
-        for X, y, pose in loader:
+        for X, y, R, T, pose in loader:
             X = Variable(X).cuda()
             y = Variable(y).cuda()
             X = X.to(device=device, dtype=torch.float)
             y = y.to(device=device, dtype=torch.float)
             with torch.no_grad():
-                out = net(X)
+                out, pose_pred = net(X)
+            y = y.view(-1, *y.size()[2:]).unsqueeze(1)
             out = torch.sigmoid(out)
             out = (out > 0.5).float()
-            loss += DiceCoeffLoss().forward(out, y)
+            seg_loss += DiceCoeffLoss().forward(out, y)
+            #pose_loss += PoseCriterion(sax=0.0, saq=params.beta, srx=0.0, srq=params.gamma)
 
             pbar.update()
 
-    loss = loss / len(loader)
+    loss = seg_loss / len(loader)
     return loss
 
 
@@ -119,7 +121,7 @@ def train(segpose, params):
         )
 
     datasets = [
-        EvMaskPoseDataset(dir_num + 1, params)
+        EvMaskPoseBatchedDataset(params.mini_batch_size, dir_num + 1, params)
         for dir_num in range(len(os.listdir(params.train_dir)) - 1)
     ]
     dataset = ConcatDataset(datasets)
@@ -140,7 +142,7 @@ def train(segpose, params):
         unet_criterion = nn.CrossEntropyLoss()
     else:
         unet_criterion = nn.BCEWithLogitsLoss()
-    pose_criterion = PoseCriterion(sax=0.0, saq=params.beta, srx=0.0, srq=params.gamma)
+    pose_criterion = PoseCriterion(sax=0.0, saq=params.beta, srx=0.0, srq=params.gamma).to(device)
 
     # Optimizer
     unet_params = segpose.unet.parameters()
@@ -183,42 +185,41 @@ def train(segpose, params):
             total=train_size, desc=f"Epoch {epoch+1}/{params.epochs}", unit="img"
         ) as pbar:
 
-            for i, (ev_frame, mask_gt, pose) in enumerate(train_loader):
+            for i, (ev_frame, mask_gt, R_gt, T_gt, pose_gt) in enumerate(train_loader):
 
                 event_frame = Variable(ev_frame).cuda()
                 mask_gt = Variable(mask_gt).cuda()
+                pose_gt = Variable(pose_gt).cuda()
 
                 # Casting variables to float
                 ev_frame = ev_frame.to(device=device, dtype=torch.float)
                 mask_gt = mask_gt.to(device=device, dtype=torch.float)
 
-                R_gt, T_gt, pose_gt = pose.values()
-
                 mask_pred, pose_pred = segpose(ev_frame)
-
                 if (
-                    step % (train_size // (10 * params.batch_size)) == 0
-                    and params.train_unet
+                    step % (train_size // (10 * params.batch_size)) == 1
+                    and False
                 ):
-                    mask_pred_m = (
-                        torch.sigmoid(output.detach().requires_grad_())
-                        > params.threshold_conf
-                    ).type(torch.uint8) * 255
-                    logging.info(f"unet output shape: {output_m.shape}")
+                    mask_pred_m = (torch.sigmoid(mask_pred) > params.threshold_conf).type(torch.uint8)
+                    writer.add_images("mask-pred-input", mask_pred_m, step)
+                    R_gt_m = R_gt.view(-1, *R_gt.size()[2:]).unsqueeze(1)
+                    T_gt_m = T_gt.view(-1, *T_gt.size()[2:]).unsqueeze(1)
+                    logging.info(f"unet output shape: {mask_pred_m.shape}, R shape {R_gt_m.shape}")
                     mask_pred, mesh_losses = MeshDeformationModel(
                         device
-                    ).run_optimization(mask_pred_m, R, T, writer, step)
+                    ).run_optimization(mask_pred_m, R_gt_m, T_gt_m, writer, step)
                     mask_pred = mask_pred.cuda()
-                    logging.info(f"mesh defo shape: {output.shape}")
-                    writer.add_images("masks-pred-mesh-deform", output, step)
+                    logging.info(f"mesh defo shape: {mask_pred.shape}")
+                    writer.add_images("masks-pred-mesh-deform", mask_pred, step)
 
+                mask_gt = mask_gt.view(-1, *mask_gt.size()[2:]).unsqueeze(1)
                 unet_loss = unet_criterion(mask_pred.requires_grad_(), mask_gt)
                 pose_loss = pose_criterion(pose_pred, pose_gt)
                 loss = unet_loss + pose_loss
 
-                writer.add_scalar("UNetLoss/Train", pose_loss.item(), step)
+                writer.add_scalar("UNetLoss/Train", unet_loss.item(), step)
                 writer.add_scalar("PoseLoss/Train", pose_loss.item(), step)
-                writer.add_scalar("Loss/Train:", loss.item(), step)
+                writer.add_scalar("CompleteLoss/Train:", loss.item(), step)
                 pbar.set_postfix(**{"loss (batch)": loss.item()})
 
                 unet_optimizer.zero_grad()
@@ -257,14 +258,19 @@ def train(segpose, params):
                     )
 
                     segpose.eval()
-                    val_loss = eval_seg_net(segpose.unet, val_loader)
+                    val_loss = eval_seg_net(segpose, val_loader)
                     segpose.train()
                     val_losses.append(val_loss)
 
                     writer.add_scalar("DiceCoeff: ", val_loss, step)
 
-                    writer.add_images("images", ev_frame, step)
+                    writer.add_images("event frame", ev_frame.view(-1, *ev_frame.size()[2:]).unsqueeze(1), step)
                     writer.add_images("masks-gt", mask_gt, step)
+                    writer.add_images(
+                        "masks-pred-probs",
+                        mask_pred,
+                        step,
+                    )
                     writer.add_images(
                         "masks-pred",
                         torch.sigmoid(mask_pred) > params.threshold_conf,
@@ -272,8 +278,8 @@ def train(segpose, params):
                     )
 
     torch.save(
-        {"model": unet.state_dict(), "optimizer": optimizer.state_dict()},
-        "epochs15_batch4_end_dolphin.cpt",
+            {"model": segpose.state_dict(), "unet_optimizer": unet_optimizer.state_dict(), "pose_optimizer": pose_optimizer.state_dict()},
+        f"epochs{params.epochs}_batch{params.batch_size}_minibatch{params.mini_batch_size}_end_dolphin.cpt",
     )
 
 
@@ -282,10 +288,10 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     # Set the device
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-    if device == "cuda:1":
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    if device == "cuda:0":
         torch.cuda.set_device()
-
+    logging.info(f"using device {device}")
     args = get_args()
     args_dict = vars(args)
     params = Params(**args_dict)
@@ -295,9 +301,9 @@ if __name__ == "__main__":
 
     try:
         unet = UNet.load(params)
-        segpose_model = SegPoseNet(unet, params)
+        segpose_model = SegPoseNet.load(unet, params)
         logging.info(segpose_model)
-        logging.info(f"Loaded UNet Model from {params.model_cpt}- Starting training")
+        logging.info(f"Loaded UNet Model from {params.segpose_model_cpt}- Starting training")
         train(segpose_model, params)
     except KeyboardInterrupt:
         interrupted_path = "Interrupted.pth"

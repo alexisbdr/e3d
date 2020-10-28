@@ -53,8 +53,8 @@ class PoseCriterion(nn.Module):
         )
 
         # get the VOs
-        pred_vos = pose_utils.calc_vos_simple(pred)
-        targ_vos = pose_utils.calc_vos_simple(targ)
+        pred_vos = calc_vos_simple(pred)
+        targ_vos = calc_vos_simple(targ)
 
         # VO loss
         s = pred_vos.size()

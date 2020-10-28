@@ -9,7 +9,7 @@ import torch
 from losses import DiceCoeffLoss, IOULoss
 from mesh_reconstruction.model import MeshDeformationModel
 from PIL import Image
-from segpose import UNet
+from segpose import UNet, SegPoseNet
 from segpose.dataset import EvMaskPoseDataset
 from segpose.params import Params
 from torch.autograd import Variable
@@ -36,9 +36,9 @@ def get_args():
     parser.add_argument(
         "-m",
         "--model",
-        dest="model_cpt",
+        dest="segpose_model_cpt",
         type=str,
-        default=Params.model_cpt,
+        default=Params.segpose_model_cpt,
         help="Load model from a .pth file",
     )
     parser.add_argument(
@@ -65,17 +65,19 @@ def predict_mesh(mesh_model: MeshDeformationModel):
     raise NotImplementedError
 
 
-def predict_mask(unet: UNet, img: Image, threshold: float, img_size: tuple):
+def predict_segpose(unet: SegPoseNet, img: Image, threshold: float, img_size: tuple):
     """Runs prediction for a single PIL Image
     """
     ev_frame = torch.from_numpy(EvMaskPoseDataset.preprocess(img, img_size))
+    print(ev_frame.shape)
     ev_frame = ev_frame.unsqueeze(0).to(device=device, dtype=torch.float)
-
+    print(ev_frame.shape)
     with torch.no_grad():
-
-        mask_pred = unet(ev_frame)
+        
+        mask_pred, pose_pred = unet(ev_frame)
+        print(mask_pred.shape)
         probs = torch.sigmoid(mask_pred).squeeze(0).cpu()
-
+    
         tf = transforms.Compose(
             [
                 transforms.ToPILImage(),
@@ -111,8 +113,8 @@ def main(models: dict, params: Params):
 
             ev_frame = manager.get_event_frame(idx)
 
-            mask_pred = predict_mask(
-                models["unet"], ev_frame, params.threshold_conf, params.img_size
+            mask_pred, pose_pred = predict_segpose(
+                models["segpose"], ev_frame, params.threshold_conf, params.img_size
             )
 
             manager.add_pred(idx, mask_pred, "silhouette")
@@ -175,10 +177,11 @@ if __name__ == "__main__":
 
     try:
         unet = UNet.load(params)
-        logging.info("Loaded UNet from params")
+        segpose = SegPoseNet.load(unet, params)
+        logging.info("Loaded SegPose from params")
         mesh_model = MeshDeformationModel(device)
         logging.info("Loaded Mesh Deformation Model")
-        models = {"unet": unet, "mesh": mesh_model}
+        models = {"segpose": unet, "mesh": mesh_model}
         main(models, params)
     except KeyboardInterrupt:
         logging.error("Received interrupt terminating prediction run")

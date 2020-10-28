@@ -1,3 +1,4 @@
+import logging
 import itertools
 
 import torch
@@ -5,6 +6,7 @@ import torch.nn.functional as F
 from segpose.layers import DoubleConv, Down, OutConv, Up
 from torch import nn
 
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 class UNet(nn.Module):
     def __init__(self, n_channels, n_classes, bilinear=True):
@@ -45,7 +47,7 @@ class UNet(nn.Module):
         """Method for loading the UNet either from a dict or from params
         """
         net = cls(params.n_channels, params.n_classes, params.bilinear)
-        if params.model_cpt:
+        if params.unet_model_cpt:
             checkpoint = torch.load(params.model_cpt, map_location=params.device)
             net.load_state_dict(checkpoint["model"])
 
@@ -103,7 +105,7 @@ class UNetUpdated(nn.Module):
         """Method for loading the UNet either from a dict or from params
         """
         net = cls(params.n_channels, params.n_classes, params.bilinear)
-        if params.model_cpt:
+        if params.unet_model_cpt:
             checkpoint = torch.load(params.model_cpt, map_location=params.device)
             net.load_state_dict(checkpoint["model"])
 
@@ -134,13 +136,14 @@ class SegPoseNet(nn.Module):
 
     def forward(self, x):
 
+        s = x.size()
+        x = x.view(-1, *s[2:]).unsqueeze(1)
         mask_pred = self.unet(x)
 
         x = self.unet.x5
-        s = x.size()
 
         x = self.avgpool(x)
-        x = torch.flatten(x, 1)
+        x = torch.flatten(x, 1).cuda()
         x = self.fc(x)
         x = F.relu(x)
 
@@ -151,9 +154,7 @@ class SegPoseNet(nn.Module):
         wpqr = self.fc_wpqr(x)
 
         poses = torch.cat((xyz, wpqr), 1)
-        print(poses.shape)
         poses = poses.view(s[0], s[1], -1)
-        print(poses.shape)
 
         return mask_pred, poses
 
@@ -164,3 +165,17 @@ class SegPoseNet(nn.Module):
             if name.split(".")[0] == "unet":
                 continue
             yield param
+            
+            
+    @classmethod
+    def load(cls, unet: nn.Module, params):
+        """Method for loading the UNet either from a dict or from params
+        """
+        net = cls(unet, params)
+        if params.segpose_model_cpt:
+            checkpoint = torch.load(params.segpose_model_cpt, map_location=params.device)
+            net.load_state_dict(checkpoint["model"])
+
+        net.to(device=params.device)
+
+        return net

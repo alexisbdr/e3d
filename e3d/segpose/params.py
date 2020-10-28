@@ -9,17 +9,19 @@ from utils.params_base import ParamsBase
 class Params(ParamsBase):
 
     # Folder Params
-    train_dir: str = "data/renders/test_dolphin"
-    pred_dir: str = "data/renders/test_dolphin"
-    model_cpt: str = "model_checkpoints/epochs15_batch4_end_dolphin.cpt"
+    train_dir: str = "data/renders/train2_dolphin"
+    pred_dir: str = "data/renders/train2_dolphin"
+    segpose_model_cpt: str = "model_interrupt.pth"
+    unet_model_cpt: str = ""
     config_file: str = ""
 
     # Image Params
     img_size: tuple = (560, 560)
 
     # Training Params
-    batch_size: int = 4
-    epochs: int = 12
+    batch_size: int = 2
+    mini_batch_size: int = 2
+    epochs: int = 10
     val_split: float = 0.15
 
     # UNet Training Params
@@ -28,7 +30,7 @@ class Params(ParamsBase):
     unet_weight_decay: float = 1e-8
     unet_momentum: float = 0.9
     threshold_conf: float = 0.5
-    train_unet: bool = False  # Flag for whether to learn the unet layers
+    train_unet: bool = True  # Flag for whether to learn the unet layers
 
     # UNet Architecture Params
     n_channels: int = 1
