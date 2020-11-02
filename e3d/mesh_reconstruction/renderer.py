@@ -24,7 +24,7 @@ def silhouette_renderer(img_size: tuple, device: str):
     raster_settings = RasterizationSettings(
         image_size=img_size[0],
         blur_radius=np.log(1.0 / 1e-4 - 1.0) * blend_params.sigma,
-        faces_per_pixel=100,
+        faces_per_pixel=50,
     )
 
     # Create a silhouette mesh renderer by composing a rasterizer and a shader.
@@ -47,8 +47,8 @@ def flat_renderer(img_size: tuple, device: str):
     lights = PointLights(
         device=device,
         location=[[3.0, 3.0, 0.0]],
-        diffuse_color=((1.0, 1.0, 1.0),),
-        specular_color=((1.0, 1.0, 1.0),),
+        diffuse_color=((0.5, 0.5, 0.5),),
+        specular_color=((0.5, 0.5, 0.5),),
     )
 
     flat_renderer = MeshRenderer(

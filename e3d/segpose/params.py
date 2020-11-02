@@ -8,10 +8,11 @@ from utils.params_base import ParamsBase
 @dataclass
 class Params(ParamsBase):
 
+    name: str = ""
     # Folder Params
     train_dir: str = "data/renders/train2_dolphin"
-    pred_dir: str = "data/renders/train2_dolphin"
-    segpose_model_cpt: str = "model_interrupt.pth"
+    pred_dir: str = "data/renders/test3_dolphin"
+    segpose_model_cpt: str = "model_checkpoints/baseline-simple_epochs22_batch4_minibatch1_dolphin.cpt"
     unet_model_cpt: str = ""
     config_file: str = ""
 
@@ -19,9 +20,9 @@ class Params(ParamsBase):
     img_size: tuple = (560, 560)
 
     # Training Params
-    batch_size: int = 2
-    mini_batch_size: int = 2
-    epochs: int = 10
+    batch_size: int = 4
+    mini_batch_size: int = 1
+    epochs: int = 22
     val_split: float = 0.15
 
     # UNet Training Params
@@ -31,6 +32,7 @@ class Params(ParamsBase):
     unet_momentum: float = 0.9
     threshold_conf: float = 0.5
     train_unet: bool = True  # Flag for whether to learn the unet layers
+    unet_end2end: bool = True
 
     # UNet Architecture Params
     n_channels: int = 1
@@ -41,7 +43,7 @@ class Params(ParamsBase):
     pose_optimizer = optim.Adam
     pose_learning_rate: float = 1e-4
     pose_weight_decay: float = 5e-4
-    train_pose: bool = True
+    train_pose: bool = False
 
     # Pose Architecture Params
     feat_dim: int = 2048

@@ -123,13 +123,12 @@ class SegPoseNet(nn.Module):
     def __init__(self, unet: nn.Module, params):
         super(SegPoseNet, self).__init__()
 
+        self.device = params.device
         self.droprate = params.droprate
 
         self.unet = unet
 
         self.avgpool = nn.AdaptiveAvgPool2d(1)
-        print("encoder out channel: ", self.unet.encoder_out_channel)
-        print("params feat dim: ", params.feat_dim)
         self.fc = nn.Linear(self.unet.encoder_out_channel, params.feat_dim)
 
         self.fc_xyz = nn.Linear(params.feat_dim, 3)
@@ -144,7 +143,7 @@ class SegPoseNet(nn.Module):
         x = self.unet.x5
 
         x = self.avgpool(x)
-        x = torch.flatten(x, 1).cuda()
+        x = torch.flatten(x, 1).to(self.device)
         x = self.fc(x)
         x = F.relu(x)
 

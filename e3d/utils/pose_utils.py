@@ -8,15 +8,15 @@ def qlog(q):
     :param q: (4,)
     :return: (3,)
     """
-    if all(q[1:] == 0):
-        q = np.zeros(3)
+    if torch.norm(q[1:]) == 0:
+        out = np.zeros(3)
     else:
-        q = np.arccos(q[0]) * q[1:] / np.linalg.norm(q[1:])
-    return q
+        out = torch.acos(q[0]) * (q[1:] / torch.norm(q[1:]))
+    return out
 
 
 def qexp(q):
-    """n
+    """
     Applies the exponential map to q
     :param q: (3,)
     :return: (4,)
@@ -24,6 +24,19 @@ def qexp(q):
     n = np.linalg.norm(q)
     q = np.hstack((np.cos(n), np.sinc(n / np.pi) * q))
     return q
+
+
+def quaternion_angular_error(q1, q2):
+    """
+    angular error between two quaternions
+    :param q1: (4, )
+    :param q2: (4, )
+    :return:
+    """
+    d = abs(np.dot(q1, q2))
+    d = min(1.0, max(-1.0, d))
+    theta = 2 * np.arccos(d) * 180 / np.pi
+    return theta
 
 
 def calc_vos_simple(poses):

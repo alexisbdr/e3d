@@ -5,6 +5,7 @@ import sys
 from os.path import abspath, join
 
 import numpy as np
+import pytorch3d.transforms.rotation_conversions as rc
 import torch
 from losses import DiceCoeffLoss, IOULoss
 from mesh_reconstruction.model import MeshDeformationModel
@@ -16,6 +17,7 @@ from torch.autograd import Variable
 from torchvision import transforms
 from tqdm import tqdm
 from utils.manager import RenderManager
+from utils.pose_utils import qexp, qlog, quaternion_angular_error
 from utils.visualization import plot_img_and_mask
 
 
@@ -25,6 +27,16 @@ def neg_iou_loss(predict, target):
     union = (predict + target - predict * target).sum(dims) + 1e-6
 
     return 1.0 - (intersect / union).sum() / intersect.nelement()
+
+
+def t_error(predict, target):
+    return torch.norm(predict - target)
+
+
+def process_rotation(R):
+    q = rc.matrix_to_quaternion(R)
+    q = torch.sign(q[0])
+    return qlog(q)
 
 
 def get_args():
@@ -65,19 +77,15 @@ def predict_mesh(mesh_model: MeshDeformationModel):
     raise NotImplementedError
 
 
-def predict_segpose(unet: SegPoseNet, img: Image, threshold: float, img_size: tuple):
-    """Runs prediction for a single PIL Image
+def predict_segpose(segpose: SegPoseNet, img: Image, threshold: float, img_size: tuple):
+    """Runs prediction for a single PIL Event Frame
     """
     ev_frame = torch.from_numpy(EvMaskPoseDataset.preprocess(img, img_size))
-    print(ev_frame.shape)
     ev_frame = ev_frame.unsqueeze(0).to(device=device, dtype=torch.float)
-    print(ev_frame.shape)
     with torch.no_grad():
-
-        mask_pred, pose_pred = unet(ev_frame)
-        print(mask_pred.shape)
+        mask_pred, pose_pred = segpose(ev_frame)
         probs = torch.sigmoid(mask_pred).squeeze(0).cpu()
-
+        pose_pred = pose_pred.squeeze(1).detach().cpu().numpy()
         tf = transforms.Compose(
             [
                 transforms.ToPILImage(),
@@ -91,7 +99,7 @@ def predict_segpose(unet: SegPoseNet, img: Image, threshold: float, img_size: tu
 
     plot_img_and_mask(img, full_mask)
 
-    return (full_mask).astype(np.uint8) * 255
+    return (full_mask).astype(np.uint8) * 255, pose_pred
 
 
 def main(models: dict, params: Params):
@@ -108,17 +116,40 @@ def main(models: dict, params: Params):
             continue
         # Run Silhouette Prediction Network
         logging.info(f"Starting mask predictions")
-        mask_priors = []
+        mask_priors, R_pred, T_pred = [], [], []
+        q_loss, t_loss = 0, 0
+        # Collect Translation stats
+        R_gt, T_gt = manager._trajectory
+        std_T, mean_T = torch.std_mean(T_gt)
         for idx in range(len(manager)):
 
             ev_frame = manager.get_event_frame(idx)
-
             mask_pred, pose_pred = predict_segpose(
                 models["segpose"], ev_frame, params.threshold_conf, params.img_size
             )
 
             manager.add_pred(idx, mask_pred, "silhouette")
             mask_priors.append(torch.from_numpy(mask_pred))
+
+            # Make qexp a torch function
+            q_pred = torch.from_numpy(qexp(pose_pred[0, 3:])).squeeze(0)
+            q_targ = rc.matrix_to_quaternion(R_gt[idx]).squeeze(0)
+            t_pred = torch.from_numpy(pose_pred[:, :3]) * std_T + mean_T
+            T_pred.append(t_pred)
+
+            q_loss += quaternion_angular_error(q_pred, q_targ)
+            t_loss += t_error(t_pred, T_gt[[idx]])
+
+            r_pred = rc.quaternion_to_matrix(q_pred).unsqueeze(0)
+            R_pred.append(r_pred)
+
+        R_pred = torch.cat(R_pred, dim=0)
+        T_pred = torch.cat(T_pred, dim=0)
+        q_loss_mean = q_loss / idx
+        t_loss_mean = t_loss / idx
+        logging.info(
+            f"Mean Translation Error: {t_loss_mean}; Mean Rotation Error: {q_loss_mean}"
+        )
 
         logging.info("Starting Mesh Reconstruction from predicted silhouettes")
 
@@ -127,25 +158,34 @@ def main(models: dict, params: Params):
         input_m = torch.stack((mask_priors))
         logging.info(f"Input pred shape & max: {input_m.shape}, {input_m.max()}")
         # The MeshDeformation model will return silhouettes across all view by default
-        mesh_silhouettes, results = models["mesh"].run_optimization(input_m, R, T)
-        mesh_pred = mesh_silhouettes.squeeze(1)
+        results = models["mesh"].run_optimization(input_m, R, T)
+        renders = models["mesh"].render_final_mesh(
+            (R, T), "predict", input_m.shape[-2:]
+        )
+
+        mesh_silhouettes = renders["silhouettes"].squeeze(1)
+        mesh_images = renders["images"].squeeze(1)
         # Calculate mean iou in comparison to groundtruth
-        groundtruth = manager._images("silhouette", img_size=params.img_size) / 255.0
-
-        logging.info(
-            f"Groundtruth shape & max: {groundtruth.shape}, {groundtruth.max()}, {groundtruth.dtype}"
-        )
-        logging.info(
-            f"Mesh pred shape & max: {mesh_pred.shape}, {mesh_pred.max()}, {mesh_pred.dtype}"
+        groundtruth_silhouettes = (
+            manager._images("silhouette", img_size=mesh_silhouettes.shape[1:]) / 255.0
         )
 
-        mesh_iou = neg_iou_loss(groundtruth, mesh_pred)
-        seg_iou = neg_iou_loss(groundtruth, input_m / 255.0)
-        gt_iou = neg_iou_loss(groundtruth, groundtruth)
+        logging.info(
+            f"Groundtruth shape & max: {groundtruth_silhouettes.shape}, {groundtruth_silhouettes.max()}, {groundtruth_silhouettes.dtype}"
+        )
+        logging.info(
+            f"Mesh pred shape & max: {mesh_silhouettes.shape}, {mesh_silhouettes.max()}, {mesh_silhouettes.dtype}"
+        )
 
-        results["mean_iou"] = mesh_iou.detach().cpu().numpy().tolist()
+        mesh_iou = neg_iou_loss(groundtruth_silhouettes, mesh_silhouettes)
+        seg_iou = neg_iou_loss(groundtruth_silhouettes, input_m / 255.0)
+        gt_iou = neg_iou_loss(groundtruth_silhouettes, groundtruth_silhouettes)
+
+        results["t_mean_error"] = t_loss_mean
+        results["q_mean_error"] = q_loss_mean
+        results["mesh_iou"] = mesh_iou.detach().cpu().numpy().tolist()
         results["seg_iou"] = seg_iou.detach().cpu().numpy().tolist()
-        logging.info(f"Mesh IOU list & results: {results['mean_iou']}")
+        logging.info(f"Mesh IOU list & results: {mesh_iou}")
         logging.info(f"Seg IOU list & results: {seg_iou}")
         logging.info(f"GT IOU list & results: {gt_iou} ")
 
@@ -153,9 +193,17 @@ def main(models: dict, params: Params):
         # results["mean_dice"] = DiceCoeffLoss().forward(groundtruth, mesh_silhouettes)
 
         manager.set_pred_results(results)
-        for idx, sil in enumerate(mesh_pred):
-            manager.add_pred(idx, sil.cpu().numpy(), "silhouette", destination="mesh")
-
+        manager.add_pred_mesh(models["mesh"]._final_mesh)
+        for idx in range(len(mesh_silhouettes)):
+            manager.add_pred(
+                idx,
+                mesh_silhouettes[idx].cpu().numpy(),
+                "silhouette",
+                destination="mesh",
+            )
+            manager.add_pred(
+                idx, mesh_images[idx].cpu().numpy(), "phong", destination="mesh"
+            )
         manager.close()
 
 
@@ -164,8 +212,8 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     # Set the device
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    if device == "cuda:0":
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    if device == "cuda:1":
         torch.cuda.set_device(device)
 
     logging.info(f"Using {device} as computation device")
@@ -181,7 +229,7 @@ if __name__ == "__main__":
         logging.info("Loaded SegPose from params")
         mesh_model = MeshDeformationModel(device)
         logging.info("Loaded Mesh Deformation Model")
-        models = {"segpose": unet, "mesh": mesh_model}
+        models = dict(segpose=segpose, mesh=mesh_model)
         main(models, params)
     except KeyboardInterrupt:
         logging.error("Received interrupt terminating prediction run")

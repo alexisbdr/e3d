@@ -15,6 +15,8 @@ import imageio
 import numpy as np
 import torch
 from PIL import Image
+from pytorch3d.io import save_obj
+from pytorch3d.structures import Meshes
 from skimage import img_as_ubyte
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s, %(message)s")
@@ -230,6 +232,7 @@ class RenderManager:
             "events",
             "silhouette_pred",
             "mesh_silhouette",
+            "mesh_textured",
         ]
 
     def open_gif_writer(self, t: str, duration: float = 0.1):
@@ -357,8 +360,12 @@ class RenderManager:
         event_manager = EventFrameManager(count, extension="png")
         event_manager._save(frame, self.folder_locs["events"])
         frame = img_as_ubyte(frame)
-        self.gif_writers["events"].append_data(frame)
+        # self.gif_writers["events"].append_data(frame)
         self.images["events"].append(event_manager._dict)
+
+    def add_pred_mesh(self, mesh):
+        assert isinstance(mesh, Meshes), "Mesh should be pytorch3d mesh object"
+        self.predicted_mesh = mesh
 
     def set_metadata(self, meta: dict):
         assert isinstance(meta, dict), "Metadata should be a dictionary"
@@ -396,6 +403,11 @@ class RenderManager:
             results_file = join(self.folder_locs["base"], "reconstruction_results.json")
             with open(results_file, mode="w") as f:
                 json.dump(self.pred_results, f)
+
+        if "pred_mesh" in self.__dict__.values():
+            mesh_path = join(self.folder_locs["base"], "predicted_mesh.obj")
+            verts, faces = self.pred_mesh.get_mesh_verts_faces()
+            save_obj(mesh_path, verts, faces)
 
     @classmethod
     def from_path(cls, path: str):

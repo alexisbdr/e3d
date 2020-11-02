@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from losses import IOULoss
 from mesh_reconstruction.params import Params
-from mesh_reconstruction.renderer import silhouette_renderer
+from mesh_reconstruction.renderer import flat_renderer, silhouette_renderer
 from pytorch3d.loss import mesh_laplacian_smoothing, mesh_normal_consistency
 from pytorch3d.renderer import SfMPerspectiveCameras, TexturesVertex
 from pytorch3d.structures import Meshes
@@ -83,6 +83,62 @@ class MeshDeformationModel(nn.Module):
 
         return deformed_meshes, laplacian_loss, flatten_loss
 
+    @property
+    def _final_mesh(self):
+        """Protected getter for the final optimized mesh
+        """
+        assert (
+            "final_mesh" in self.__dict__.keys()
+        ), "Final Mesh does not exist yet - please run multi-view optimization before getting"
+        return self.final_mesh
+
+    def render_final_mesh(self, poses, mode: str, out_size: list) -> dict:
+        """Renders the final mesh obtained through optimization
+            Supports two modes:
+                -predict: renders both silhouettes and flat shaded images
+                -train: only renders silhouettes
+            Returns:
+                -dict of renders {'silhouettes': tensor, 'images': tensor}
+        """
+        R, T = poses
+        if len(R.shape) == 4:
+            R = R.squeeze(1)
+            T = T.squeeze(1)
+
+        sil_renderer = silhouette_renderer(out_size, self.device)
+        image_renderer = flat_renderer(out_size, self.device)
+
+        # Create a silhouette projection of the mesh across all views
+        all_silhouettes = []
+        all_images = []
+        for i in range(0, R.shape[0]):
+            t_cameras = SfMPerspectiveCameras(device=self.device, R=R[[i]], T=T[[i]])
+            all_silhouettes.append(
+                sil_renderer(self._final_mesh, device=self.device, cameras=t_cameras)
+                .detach()
+                .cpu()[..., -1]
+            )
+
+            if mode == "predict":
+                all_images.append(
+                    torch.clamp(
+                        image_renderer(
+                            self._final_mesh, device=self.device, cameras=t_cameras
+                        ),
+                        0,
+                        1,
+                    )
+                    .detach()
+                    .cpu()[..., :3]
+                )
+            torch.cuda.empty_cache()
+        renders = dict(
+            silhouettes=torch.cat(all_silhouettes).unsqueeze(-1).permute(0, 3, 1, 2),
+            images=torch.cat(all_images).permute(0, 3, 1, 2) if all_images else [],
+        )
+
+        return renders
+
     def run_optimization(
         self,
         silhouettes: torch.tensor,
@@ -99,6 +155,11 @@ class MeshDeformationModel(nn.Module):
                 -Mesh Normal smoothing
             Mini Batching:
                 If the number silhouettes is greater than the allowed batch size then a random set of images/poses is sampled for supervision at each step
+        Returns:
+            -Reconstruction losses: 3 reconstruction losses measured during optimization
+            -Timing:
+                -Iterations / second
+                -Total time elapsed in seconds
         """
 
         if len(R.shape) == 4:
@@ -112,16 +173,11 @@ class MeshDeformationModel(nn.Module):
                 transforms.ToTensor(),
             ]
         )
-        tf_original = transforms.Compose(
-            [
-                transforms.ToPILImage(),
-                transforms.Resize(silhouettes.shape[-1]),
-                transforms.ToTensor(),
-            ]
-        )
+
         images_gt = torch.stack(
             [tf_smaller(s.cpu()).to(self.device) for s in silhouettes]
         ).squeeze(1)
+
         if images_gt.max() > 1.0:
             images_gt = images_gt / 255.0
 
@@ -143,11 +199,12 @@ class MeshDeformationModel(nn.Module):
             batch_cameras = SfMPerspectiveCameras(
                 device=self.device, R=batch_R, T=batch_T
             )
+            # logging.info(f"Batch silhouettes shape: {batch_silhouettes.shape}, Rotation shape: {batch_R.shape}")
 
             mesh, laplacian_loss, flatten_loss = self.forward(self.params.batch_size)
 
             images_pred = self.renderer(
-                mesh.clone(), device=self.device, cameras=batch_cameras
+                mesh, device=self.device, cameras=batch_cameras
             )[..., -1]
 
             iou_loss = IOULoss().forward(batch_silhouettes, images_pred)
@@ -197,20 +254,8 @@ class MeshDeformationModel(nn.Module):
 
                     plt.show()
 
-        # Create a silhouette projection of the mesh across all views
-        all_silhouettes = []
-        for i in range(0, images_gt.shape[0]):
-            t_cameras = SfMPerspectiveCameras(device=self.device, R=R[[i]], T=T[[i]])
-            all_silhouettes.append(
-                tf_original(
-                    self.renderer(
-                        mesh[0].clone(), device=self.device, cameras=t_cameras
-                    )
-                    .detach()
-                    .cpu()[..., -1]
-                )
-            )
-        all_silhouettes = torch.cat(all_silhouettes).unsqueeze(-1).permute(0, 3, 1, 2)
+        # Set the final optimized mesh as an internal variable
+        self.final_mesh = mesh[0]
 
         # mean_iou = IOULoss().forward(images_gt.detach().cpu(), all_silhouettes[...,-1].detach().cpu()).detach().cpu().numpy().tolist()
 
@@ -225,6 +270,13 @@ class MeshDeformationModel(nn.Module):
                 s.detach().cpu().numpy().tolist() for s in self.losses["flatten"]
             ],
             iterations_per_second=self.params.steps / (time.time() - start_time),
+            total_time_s=time.time() - start_time,
         )
 
-        return (all_silhouettes, results)
+        # Release some memory being held inside class
+        self.renderer = None
+        self.optimizer = None
+        images_pred = None
+        torch.cuda.empty_cache()
+
+        return results

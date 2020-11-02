@@ -1,3 +1,4 @@
+import random
 from collections import OrderedDict
 
 import numpy as np
@@ -58,14 +59,14 @@ class EvMaskPoseDataset(Dataset):
 
     def preprocess_poses(cls, pose: tuple):
         """Convert rotation matrix to log quaternion representation
-        Returns a 1x7 vector containing
+        Returns a 1x6 vector containing
         """
 
         R, T = pose
 
         q = rc.matrix_to_quaternion(R)
-        q = torch.sign(q[0])  # hemisphere constraint
-        logq = qlog(q)
+        q *= torch.sign(q[0])  # hemisphere constraint
+        logq = qlog(q.squeeze(0))
 
         T = T.squeeze(0)
         T -= cls.pose_stats()["mean_T"]
@@ -102,12 +103,13 @@ class EvMaskPoseBatchedDataset(Dataset):
         self.dataset = EvMaskPoseDataset(dir_num, params, transforms)
 
     def __getitem__(self, index: int):
-        """Returns a set of items from the dataset of size 'steps'
+        """Returns a set of items randomly distributed along a set interval size
         """
-        data = [
-            self.dataset[i]
-            for i in range(index * self.steps, index * self.steps + self.steps)
-        ]
+        subset = range(
+            index * self.steps - self.steps, index * self.steps + 2 * self.steps
+        )
+        sublist = [max(min(x, len(self.dataset) - 1), 0) for x in subset]
+        data = [self.dataset[i] for i in sorted(random.sample(sublist, k=self.steps))]
 
         out_data = []
         for elem in range(len(data[0])):

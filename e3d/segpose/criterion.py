@@ -52,6 +52,9 @@ class PoseCriterion(nn.Module):
             + self.saq
         )
 
+        if pred.shape[1] == 1:
+            return abs_loss
+
         # get the VOs
         pred_vos = calc_vos_simple(pred)
         targ_vos = calc_vos_simple(targ)

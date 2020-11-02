@@ -5,6 +5,7 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 import logging
 import sys
+from collections import defaultdict
 
 import numpy as np
 import torch
@@ -30,7 +31,9 @@ def get_args():
         description="EvUnet Training",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-
+    parser.add_argument(
+        "-n", "--name", metavar="NAME", type=str, help="Model Name", dest="name",
+    )
     parser.add_argument(
         "-e",
         "--epochs",
@@ -120,11 +123,18 @@ def train(segpose, params):
             "Training directory has not been set using cli or params"
         )
 
-    datasets = [
-        EvMaskPoseBatchedDataset(params.mini_batch_size, dir_num + 1, params)
-        for dir_num in range(len(os.listdir(params.train_dir)) - 1)
-    ]
-    dataset = ConcatDataset(datasets)
+    if params.train_pose:
+        datasets = [
+            EvMaskPoseBatchedDataset(params.mini_batch_size, dir_num + 1, params)
+            for dir_num in range(len(os.listdir(params.train_dir)) - 1)
+        ]
+    else:
+        datasets = [
+            EvMaskPoseDataset(dir_num + 1, params)
+            for dir_num in range(len(os.listdir(params.train_dir)) - 1)
+        ]
+    # dataset = ConcatDataset(datasets)
+    dataset = datasets[0]
 
     val_size = int(len(dataset) * params.val_split)
     train_size = len(dataset) - val_size
@@ -166,16 +176,17 @@ def train(segpose, params):
         weight_decay=params.pose_weight_decay,
     )
     if not params.train_pose:
-        for p in pose_params:
+        for p in pose_parameters:
             p.requires_grad = False
 
     writer = SummaryWriter(
-        comment=f"LR_{params.pose_learning_rate}_EPOCHS_{params.epochs}_BS_{params.batch_size}_IMGSIZE_{params.img_size}"
+        comment=f"{params.name}_LR_{params.pose_learning_rate}_EPOCHS_{params.epochs}_BS_{params.batch_size}_IMGSIZE_{params.img_size}"
     )
 
     iters = []
     train_losses = []
     val_losses = []
+    prev = defaultdict(list)
 
     step = 0
     min_loss = np.inf
@@ -189,31 +200,56 @@ def train(segpose, params):
 
             for i, (ev_frame, mask_gt, R_gt, T_gt, pose_gt) in enumerate(train_loader):
 
-                event_frame = Variable(ev_frame).cuda()
-                mask_gt = Variable(mask_gt).cuda()
-                pose_gt = Variable(pose_gt).cuda()
+                event_frame = Variable(ev_frame).to(params.device)
+                mask_gt = Variable(mask_gt).to(params.device)
+                pose_gt = Variable(pose_gt).to(params.device)
 
                 # Casting variables to float
                 ev_frame = ev_frame.to(device=device, dtype=torch.float)
                 mask_gt = mask_gt.to(device=device, dtype=torch.float)
 
                 mask_pred, pose_pred = segpose(ev_frame)
-                if step % (train_size // (10 * params.batch_size)) == 1 and False:
-                    mask_pred_m = (
-                        torch.sigmoid(mask_pred) > params.threshold_conf
-                    ).type(torch.uint8)
-                    writer.add_images("mask-pred-input", mask_pred_m, step)
-                    R_gt_m = R_gt.view(-1, *R_gt.size()[2:]).unsqueeze(1)
-                    T_gt_m = T_gt.view(-1, *T_gt.size()[2:]).unsqueeze(1)
-                    logging.info(
-                        f"unet output shape: {mask_pred_m.shape}, R shape {R_gt_m.shape}"
-                    )
-                    mask_pred, mesh_losses = MeshDeformationModel(
-                        device
-                    ).run_optimization(mask_pred_m, R_gt_m, T_gt_m, writer, step)
-                    mask_pred = mask_pred.cuda()
-                    logging.info(f"mesh defo shape: {mask_pred.shape}")
-                    writer.add_images("masks-pred-mesh-deform", mask_pred, step)
+
+                if params.unet_end2end and step % (
+                    train_size // (10 * params.batch_size)
+                ) in list(range(10)):
+                    prev["R_gt"].append(R_gt)
+                    prev["T_gt"].append(T_gt)
+                    prev["mask_pred"].append(mask_pred)
+
+                    # End to End training through Differentiable Renderer
+                    if step % (train_size // (10 * params.batch_size)) == 9:
+                        # Concatenate results from previous step
+                        R_gt = torch.cat(prev["R_gt"])
+                        T_gt = torch.cat(prev["T_gt"])
+                        mask_pred = torch.cat(prev["mask_pred"])
+
+                        mask_pred_m = (
+                            torch.sigmoid(mask_pred) > params.threshold_conf
+                        ).type(torch.uint8)
+                        writer.add_images("mask-pred-input", mask_pred_m, step)
+                        # R_gt_m = R_gt.view(-1, *R_gt.size()[2:]).unsqueeze(1)
+                        # T_gt_m = T_gt.view(-1, *T_gt.size()[2:]).unsqueeze(1)
+                        logging.info(
+                            f"unet output shape: {mask_pred_m.shape}, R shape {R_gt.shape}"
+                        )
+                        mesh_model = MeshDeformationModel(device)
+                        mesh_losses = mesh_model.run_optimization(
+                            mask_pred_m, R_gt, T_gt, writer, step
+                        )
+                        renders = mesh_model.render_final_mesh(
+                            (R_gt, T_gt), "predict", mask_pred_m.shape[-2:]
+                        )
+                        mask_pred = renders["silhouettes"].to(device)
+                        image_pred = renders["images"].to(device)
+
+                        logging.info(f"mesh defo shape: {image_pred.shape}")
+                        writer.add_images("masks-pred-mesh-deform", mask_pred, step)
+                        writer.add_images("images-pred-mesh-deform", image_pred, step)
+                        # Cut out batch_size from mask_pred for calculating loss
+                        mask_pred = mask_pred[: ev_frame.shape[0]]
+
+                        prev = defaultdict(list)
 
                 mask_gt = mask_gt.view(-1, *mask_gt.size()[2:]).unsqueeze(1)
                 unet_loss = unet_criterion(mask_pred.requires_grad_(), mask_gt)
@@ -238,8 +274,9 @@ def train(segpose, params):
 
                 pbar.update(ev_frame.shape[0])
 
-                step += 1
-                if step % (train_size // (10 * params.batch_size)) == 0:
+                # Evaluation
+
+                if step % (train_size // (10 * params.batch_size)) == 5:
 
                     for tag, value in unet.named_parameters():
                         tag = tag.replace(".", "/")
@@ -282,13 +319,16 @@ def train(segpose, params):
                         step,
                     )
 
+                # End of loop -> increase step
+                step += 1
+
     torch.save(
         {
             "model": segpose.state_dict(),
             "unet_optimizer": unet_optimizer.state_dict(),
             "pose_optimizer": pose_optimizer.state_dict(),
         },
-        f"epochs{params.epochs}_batch{params.batch_size}_minibatch{params.mini_batch_size}_end_dolphin.cpt",
+        f"{params.name}_epochs{params.epochs}_batch{params.batch_size}_minibatch{params.mini_batch_size}_end_dolphin.cpt",
     )
 
 
@@ -297,16 +337,20 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     # Set the device
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    if device == "cuda:0":
+    dev_num = "1"
+    device = torch.device(f"cuda:{dev_num}" if torch.cuda.is_available() else "cpu")
+    logging.info(f"Using {device} as computation device")
+    if device == f"cuda:{dev_num}":
         torch.cuda.set_device()
-    logging.info(f"using device {device}")
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = dev_num
     args = get_args()
     args_dict = vars(args)
     params = Params(**args_dict)
     params.device = device
-
-    logging.info(f"Using {device} as computation device")
+    logging.info(
+        f"Training {'POSE' if params.train_pose else ''} and {'UNET' if params.train_unet else ''}"
+    )
 
     try:
         unet = UNet.load(params)
@@ -316,7 +360,8 @@ if __name__ == "__main__":
             f"Loaded UNet Model from {params.segpose_model_cpt}- Starting training"
         )
         train(segpose_model, params)
-    except KeyboardInterrupt:
-        interrupted_path = "Interrupted.pth"
+    except Exception as e:
+        interrupted_path = f"{params.name}_interrupted.pth"
         logging.info(f"Received Interrupt, saving model at {interrupted_path}")
         torch.save({"model": segpose_model.state_dict()}, interrupted_path)
+        raise Exception(e)
