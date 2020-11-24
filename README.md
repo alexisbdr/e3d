@@ -1,4 +1,4 @@
-# E3D: Recovering Shape from Events
+# E3D: Event-Based Shape Reconstruction
 
 ## Running E3D
 
