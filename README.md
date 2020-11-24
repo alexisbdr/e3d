@@ -54,16 +54,16 @@ car (PMO - Events) | [link](https://drive.google.com/file/d/1klYc0SkwBBGLUTJd64J
 chair (PMO - Events) | [link](https://drive.google.com/file/d/1o3Dst-QRZR15Ph6YuwVkotXZVXUu1_0r/view?usp=sharing)
 
 ## Datasets
-Toy datasets of both car and chair are provided with the code to ease reproducibility. 
+Toy datasets of both car and chair are provided with the code to ease reproducibility. We recommend running with the toy datasets (as described below) to reproduce the results seen in the paper/
 
-You will need at least 20G of space to download the datasets
+You will need at least 20G of space to download the full datasets
 
-The datasets must be downloaded to 
+The datasets must be downloaded to data/renders
 
 Name  | Category | Drive Link 
 ------------- | ------------- | -----------------
-test_car_subset | car | [link]()
-test_chair_subset | chair | [link]()
+test_car_subset | car | [link](https://drive.google.com/file/d/1wf885mLpn5Ixk9t1xc3_uKW3qBgq5Jt9/view?usp=sharing)
+test_chair_subset | chair | [link](https://drive.google.com/file/d/1KqJTxctb_tWnukxBUduo69XSOP5QuGOC/view?usp=sharing)
 train_car_shapenet | car | [link](https://drive.google.com/file/d/1fMzvSkENq0lfqC5c6C3g34swufo3NtmV/view?usp=sharing)
 test_car_shapenet | car | [link](https://drive.google.com/file/d/1fz0Hb9WYaOB5K7DOJw3Icoc2KR6Ys2SU/view?usp=sharing)
 train_chair_shapenet | chair | [link](https://drive.google.com/file/d/1mpyYI99KmkRG72oFYB5xr_vPDOtle74i/view?usp=sharing)
@@ -99,7 +99,7 @@ Default parameters are in synth_dataset/params.py
 cd synth_dataset
 python generate_dataset.py --gpu 0 --name test_car --category car
 '''
-
+The dataset will be generated in data/renders by default
 
 
 ### Contributing
