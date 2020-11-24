@@ -49,7 +49,7 @@ car  | [link](https://drive.google.com/file/d/1UOdLMux0nr4S7QzST1hjyJlgeASu8JR9/
 chair | [link](https://drive.google.com/file/d/1uQXTkqTj38UYaMY5Zk8IAZJvFTebjWsf/view?usp=sharing)
 dolphin (baseline) | [link](https://drive.google.com/file/d/1zGdw7QoPtytwQDfbYirZaWC7Ctw69kFI/view?usp=sharing) 
 dolphin (fine-tuned) | [link](https://drive.google.com/file/d/1VrA8_Dgdto-JxexaT6BwCTFw7NaR3oWT/view?usp=sharing)
-------------- | ------------- 
+------------- | ------------- | -----------------
 car (PMO - Events) | [link](https://drive.google.com/file/d/1klYc0SkwBBGLUTJd64JjO3gJbxiPg1cp/view?usp=sharing)
 chair (PMO - Events) | [link](https://drive.google.com/file/d/1o3Dst-QRZR15Ph6YuwVkotXZVXUu1_0r/view?usp=sharing)
 
@@ -61,7 +61,7 @@ You will need at least 20G of space to download the datasets
 The datasets must be downloaded to 
 
 Name  | Category | Drive Link 
-------------- | ------------- 
+------------- | ------------- | -----------------
 test_car_subset | car | [link]()
 test_chair_subset | chair | [link]()
 train_car_shapenet | car | [link](https://drive.google.com/file/d/1fMzvSkENq0lfqC5c6C3g34swufo3NtmV/view?usp=sharing)
