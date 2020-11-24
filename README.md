@@ -43,13 +43,13 @@ Installing [PMO](https://github.com/chenhsuanlin/photometric-mesh-optim) - follo
 
 ## Pre-Trained Models
 
-Category | Drive Link | Chamfer Distance (GT Pose
-------------- | ------------- | -----------------
+Category | Drive Link 
+------------- | ------------- 
 car  | [link](https://drive.google.com/file/d/1UOdLMux0nr4S7QzST1hjyJlgeASu8JR9/view?usp=sharing)
 chair | [link](https://drive.google.com/file/d/1uQXTkqTj38UYaMY5Zk8IAZJvFTebjWsf/view?usp=sharing)
 dolphin (baseline) | [link](https://drive.google.com/file/d/1zGdw7QoPtytwQDfbYirZaWC7Ctw69kFI/view?usp=sharing) 
 dolphin (fine-tuned) | [link](https://drive.google.com/file/d/1VrA8_Dgdto-JxexaT6BwCTFw7NaR3oWT/view?usp=sharing)
-------------- | ------------- | -----------------
+------------- | ------------- 
 car (PMO - Events) | [link](https://drive.google.com/file/d/1klYc0SkwBBGLUTJd64JjO3gJbxiPg1cp/view?usp=sharing)
 chair (PMO - Events) | [link](https://drive.google.com/file/d/1o3Dst-QRZR15Ph6YuwVkotXZVXUu1_0r/view?usp=sharing)
 
