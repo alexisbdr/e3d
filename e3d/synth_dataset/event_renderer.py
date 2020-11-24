@@ -27,7 +27,9 @@ def generate_event_frames(image_path_list, img_size, batch):
         batch_image_path_list = image_path_list[
             curr_batch * batch : (curr_batch + 1) * batch
         ]
+
         timestamp_list = range(len(batch_image_path_list))
+        # print("timestamp list: ", timestamp_list)
         esim = esim_py.EventSimulator(
             EsimParams.Cp,
             EsimParams.Cn,
@@ -42,15 +44,15 @@ def generate_event_frames(image_path_list, img_size, batch):
             batch_image_path_list, timestamp_list
         )
 
-        batch_events_plot = int(len(events) / len(batch_image_path_list))
-
+        batch_events_image = int(len(events) / len(batch_image_path_list))
+        # print("batch events image size: ",batch_events_image)
         event_batch_size = 0
         while event_batch_size <= len(events) and len(event_frames) < len(
             image_path_list
         ):
 
             curr_batch_events = events[
-                event_batch_size : event_batch_size + batch_events_plot
+                event_batch_size : event_batch_size + batch_events_image
             ]
 
             pos_events = curr_batch_events[curr_batch_events[:, -1] == 1]
@@ -91,7 +93,8 @@ def generate_event_frames(image_path_list, img_size, batch):
                 plt.imshow(image_rgb)
                 plt.show()
 
-            event_batch_size += batch_events_plot
+            # event_batch_size += batch_events_plot
+            event_batch_size += len(curr_batch_events)
 
         curr_batch += 1
 

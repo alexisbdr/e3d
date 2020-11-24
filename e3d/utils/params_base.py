@@ -10,7 +10,7 @@ class ParamsBase:
             with open(self.config_file) as f:
                 dict_in = json.load(f)
                 for key, value in dict_in.items():
-                    if key in self._annotations__:
+                    if key in self.__annotations__:
                         setattr(self, key, value)
 
     @classmethod

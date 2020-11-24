@@ -2,7 +2,7 @@ import argparse
 import os
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 import logging
 import sys
 from collections import defaultdict
@@ -10,12 +10,14 @@ from collections import defaultdict
 import numpy as np
 import torch
 import torch.nn as nn
-from losses import DiceCoeffLoss
+from losses import DiceCoeffLoss, IOULoss
 from mesh_reconstruction.model import MeshDeformationModel
 from PIL import Image
+from pytorch3d.renderer import SfMPerspectiveCameras
 from segpose import SegPoseNet, UNet
-from segpose.criterion import PoseCriterion
-from segpose.dataset import EvMaskPoseBatchedDataset, EvMaskPoseDataset
+from segpose.criterion import PoseCriterion, PoseCriterionRel
+from segpose.dataset import (ConcatDataSampler, EvMaskPoseBatchedDataset,
+                             EvMaskPoseDataset)
 from segpose.params import Params
 from torch import optim
 from torch.autograd import Variable
@@ -23,6 +25,7 @@ from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from utils.manager import RenderManager
+from utils.visualization import plot_camera_scene
 
 
 def get_args():
@@ -54,8 +57,8 @@ def get_args():
         dest="batch_size",
     )
     parser.add_argument(
-        "-f",
-        "--load",
+        "-m",
+        "--model",
         dest="segpose_model_cpt",
         type=str,
         default=Params.segpose_model_cpt,
@@ -84,8 +87,33 @@ def get_args():
         default=Params.config_file,
         help="Load Params dict from config file, file should be in cfg format",
     )
+    parser.add_argument(
+        "--gpu", dest="gpu_num", default="0", type=str, help="GPU Device Number",
+    )
+    parser.add_argument(
+        "-t",
+        "--train-dir",
+        dest="train_dir",
+        type=str,
+        default=Params.train_dir,
+        help="Path to prediction directory",
+    )
 
     return parser.parse_args()
+
+
+def plot_cams_from_poses(pose_gt, pose_pred, device: str):
+    """
+    """
+    R_gt, T_gt = pose_gt
+    R_pred, T_pred = pose_pred
+
+    cameras_gt = SfMPerspectiveCameras(device=device, R=R_gt, T=T_gt)
+    cameras_pred = SfMPerspectiveCameras(device=device, R=R_pred, T=T_pred)
+
+    fig = plot_camera_scene(cameras_pred, cameras_gt, "final_preds", params.device)
+
+    return fig
 
 
 def eval_seg_net(net, loader):
@@ -123,38 +151,48 @@ def train(segpose, params):
             "Training directory has not been set using cli or params"
         )
 
-    if params.train_pose:
-        datasets = [
-            EvMaskPoseBatchedDataset(params.mini_batch_size, dir_num + 1, params)
-            for dir_num in range(len(os.listdir(params.train_dir)) - 1)
-        ]
-    else:
-        datasets = [
-            EvMaskPoseDataset(dir_num + 1, params)
-            for dir_num in range(len(os.listdir(params.train_dir)) - 1)
-        ]
-    # dataset = ConcatDataset(datasets)
-    dataset = datasets[0]
+    datasets = []
+    for dir_num in range(len(os.listdir(params.train_dir)) - 1):
+        if params.train_pose and params.train_relative and False:
+            dataset = EvMaskPoseBatchedDataset(
+                params.mini_batch_size, dir_num + 1, params
+            )
+        else:
+            dataset = EvMaskPoseDataset(dir_num + 1, params)
+        if dataset.render_manager is not None:
+            datasets.append(dataset)
 
-    val_size = int(len(dataset) * params.val_split)
-    train_size = len(dataset) - val_size
-    train, val = random_split(dataset, (train_size, val_size))
+    # Train, Val split according to datasets
+    val_size = int(len(datasets) * params.val_split)
+    train_size = len(datasets) - val_size
+    train_dataset = ConcatDataset(datasets[val_size:])
+    val_dataset = ConcatDataset(datasets[:val_size])
+    train_size = len(train_dataset)  # We use this to calculate other stuff later
 
-    train_loader = DataLoader(
-        train, batch_size=params.batch_size, shuffle=True, num_workers=8, drop_last=True
+    train_sampler = ConcatDataSampler(
+        train_dataset, batch_size=params.batch_size, shuffle=True
     )
-    val_loader = DataLoader(
-        val, batch_size=params.batch_size, shuffle=False, num_workers=8, drop_last=True
+    val_sampler = ConcatDataSampler(
+        val_dataset, batch_size=params.batch_size, shuffle=True
     )
+
+    train_loader = DataLoader(train_dataset, batch_sampler=train_sampler, num_workers=8)
+    val_loader = DataLoader(val_dataset, batch_sampler=val_sampler, num_workers=8)
 
     # Criterions
     if unet.n_classes > 1:
         unet_criterion = nn.CrossEntropyLoss()
     else:
         unet_criterion = nn.BCEWithLogitsLoss()
-    pose_criterion = PoseCriterion(
-        sax=0.0, saq=params.beta, srx=0.0, srq=params.gamma
-    ).to(device)
+
+    if params.train_relative:
+        pose_criterion = PoseCriterionRel(
+            sax=0.0, saq=params.beta, srx=0.0, srq=params.gamma
+        ).to(device)
+    else:
+        pose_criterion = PoseCriterion(sax=0.0, saq=params.beta, learn_beta=True).to(
+            device
+        )
 
     # Optimizer
     unet_params = segpose.unet.parameters()
@@ -164,6 +202,9 @@ def train(segpose, params):
         weight_decay=params.unet_weight_decay,
         momentum=params.unet_momentum,
     )
+    if params.segpose_model_cpt:
+        cpt = torch.load(params.segpose_model_cpt)
+        unet_optimizer.load_state_dict(cpt["unet_optimizer"])
     if not params.train_unet:
         for p in unet_params:
             p.requires_grad = False
@@ -175,6 +216,8 @@ def train(segpose, params):
         lr=params.pose_learning_rate,
         weight_decay=params.pose_weight_decay,
     )
+    if params.segpose_model_cpt:
+        pose_optimizer.load_state_dict(cpt["pose_optimizer"])
     if not params.train_pose:
         for p in pose_parameters:
             p.requires_grad = False
@@ -186,6 +229,9 @@ def train(segpose, params):
     iters = []
     train_losses = []
     val_losses = []
+    fine_tuning = (
+        params.fine_tuning
+    )  # True if we're running fine-tuning @ this step --> loss calc
     prev = defaultdict(list)
 
     step = 0
@@ -210,24 +256,27 @@ def train(segpose, params):
 
                 mask_pred, pose_pred = segpose(ev_frame)
 
-                if params.unet_end2end and step % (
+                if params.fine_tuning and step % (
                     train_size // (10 * params.batch_size)
-                ) in list(range(10)):
+                ) in [2, 3]:
                     prev["R_gt"].append(R_gt)
                     prev["T_gt"].append(T_gt)
                     prev["mask_pred"].append(mask_pred)
 
-                    # End to End training through Differentiable Renderer
-                    if step % (train_size // (10 * params.batch_size)) == 9:
+                    # Fine-tuning through Differentiable Renderer
+                    if step % (train_size // (10 * params.batch_size)) == 3:
+                        fine_tuning = True
                         # Concatenate results from previous step
                         R_gt = torch.cat(prev["R_gt"])
                         T_gt = torch.cat(prev["T_gt"])
-                        mask_pred = torch.cat(prev["mask_pred"])
+                        mask_pred_m = torch.cat(prev["mask_pred"])
 
                         mask_pred_m = (
-                            torch.sigmoid(mask_pred) > params.threshold_conf
-                        ).type(torch.uint8)
-                        writer.add_images("mask-pred-input", mask_pred_m, step)
+                            torch.sigmoid(mask_pred).squeeze() > params.threshold_conf
+                        ).type(torch.uint8) * 255
+                        writer.add_images(
+                            "mask-pred-input", mask_pred_m.unsqueeze(1), step
+                        )
                         # R_gt_m = R_gt.view(-1, *R_gt.size()[2:]).unsqueeze(1)
                         # T_gt_m = T_gt.view(-1, *T_gt.size()[2:]).unsqueeze(1)
                         logging.info(
@@ -240,21 +289,33 @@ def train(segpose, params):
                         renders = mesh_model.render_final_mesh(
                             (R_gt, T_gt), "predict", mask_pred_m.shape[-2:]
                         )
-                        mask_pred = renders["silhouettes"].to(device)
+                        mask_pred_m = renders["silhouettes"].to(device)
                         image_pred = renders["images"].to(device)
 
                         logging.info(f"mesh defo shape: {image_pred.shape}")
-                        writer.add_images("masks-pred-mesh-deform", mask_pred, step)
-                        writer.add_images("images-pred-mesh-deform", image_pred, step)
+                        writer.add_images("masks-pred-mesh-deform", mask_pred_m, step)
+                        writer.add_images(
+                            "images-pred-mesh-deform",
+                            image_pred.permute(0, 3, 1, 2),
+                            step,
+                        )
                         # Cut out batch_size from mask_pred for calculating loss
-                        mask_pred = mask_pred[: ev_frame.shape[0]]
+                        mask_pred_m = mask_pred_m[: ev_frame.shape[0]].requires_grad_()
 
                         prev = defaultdict(list)
 
                 mask_gt = mask_gt.view(-1, *mask_gt.size()[2:]).unsqueeze(1)
-                unet_loss = unet_criterion(mask_pred.requires_grad_(), mask_gt)
-                pose_loss = pose_criterion(pose_pred, pose_gt)
-                loss = unet_loss + pose_loss
+
+                # Compute losses
+                unet_loss = unet_criterion(mask_pred, mask_gt)
+                if params.unet_end2end and fine_tuning:
+                    unet_loss += IOULoss().forward(mask_pred_m, mask_gt) * 1.2
+                    fine_tuning = False
+                if params.train_relative:
+                    pose_loss = pose_criterion(pose_pred, pose_gt)
+                else:
+                    pose_loss = pose_criterion(pose_pred.squeeze(1), pose_gt.squeeze(1))
+                loss = pose_loss + unet_loss
 
                 writer.add_scalar("UNetLoss/Train", unet_loss.item(), step)
                 writer.add_scalar("PoseLoss/Train", pose_loss.item(), step)
@@ -264,6 +325,8 @@ def train(segpose, params):
                 unet_optimizer.zero_grad()
                 pose_optimizer.zero_grad()
 
+                # if params.train_unet: unet_loss.backward()
+                # if params.train_pose: pose_loss.backward()
                 loss.backward()
 
                 nn.utils.clip_grad_value_(segpose.unet.parameters(), 0.1)
@@ -276,19 +339,29 @@ def train(segpose, params):
 
                 # Evaluation
 
-                if step % (train_size // (10 * params.batch_size)) == 5:
+                if (
+                    step % (train_size // (10 * params.batch_size)) == 0
+                    and params.train_unet
+                ):
 
-                    for tag, value in unet.named_parameters():
-                        tag = tag.replace(".", "/")
-                        writer.add_histogram(
-                            "weights/" + tag, value.data.cpu().numpy(), step
-                        )
-                        writer.add_histogram(
-                            "grads/" + tag, value.grad.data.cpu().numpy(), step
-                        )
-
+                    """
+                    if params.train_unet:
+                        for tag, value in unet.named_parameters():
+                            tag = tag.replace(".", "/")
+                            writer.add_histogram(
+                                "weights/" + tag, value.data.cpu().numpy(), step
+                            )
+                            writer.add_histogram(
+                                "grads/" + tag, value.grad.data.cpu().numpy(), step
+                            )
+                    """
                     iters.append(i)
-                    train_losses.append(loss)
+                    train_losses.append(
+                        [
+                            pose_loss if params.train_pose else 0.0,
+                            unet_loss if params.train_unet else 0.0,
+                        ]
+                    )
 
                     writer.add_scalar(
                         "unet_learning_rate", unet_optimizer.param_groups[0]["lr"], step
@@ -301,6 +374,11 @@ def train(segpose, params):
                     val_loss = eval_seg_net(segpose, val_loader)
                     segpose.train()
                     val_losses.append(val_loss)
+
+                    # Plot cam pose
+
+                    # q_pred = qexp(pose_pred.squeeze(0)[:, 3:])
+                    # R_pred = rc.quaternion_to_matrix(q_pred).unsqueeze(0)
 
                     writer.add_scalar("DiceCoeff: ", val_loss, step)
 
@@ -328,7 +406,7 @@ def train(segpose, params):
             "unet_optimizer": unet_optimizer.state_dict(),
             "pose_optimizer": pose_optimizer.state_dict(),
         },
-        f"{params.name}_epochs{params.epochs}_batch{params.batch_size}_minibatch{params.mini_batch_size}_end_dolphin.cpt",
+        f"{params.name}_epochs{params.epochs}_batch{params.batch_size}_minibatch{params.mini_batch_size}.cpt",
     )
 
 
@@ -336,17 +414,19 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
+    args = get_args()
+    args_dict = vars(args)
+    params = Params(**args_dict)
+
     # Set the device
-    dev_num = "1"
+    dev_num = params.gpu_num
     device = torch.device(f"cuda:{dev_num}" if torch.cuda.is_available() else "cpu")
     logging.info(f"Using {device} as computation device")
     if device == f"cuda:{dev_num}":
         torch.cuda.set_device()
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = dev_num
-    args = get_args()
-    args_dict = vars(args)
-    params = Params(**args_dict)
+    logging.info(f"Using {device} as computation device")
     params.device = device
     logging.info(
         f"Training {'POSE' if params.train_pose else ''} and {'UNET' if params.train_unet else ''}"
@@ -360,8 +440,11 @@ if __name__ == "__main__":
             f"Loaded UNet Model from {params.segpose_model_cpt}- Starting training"
         )
         train(segpose_model, params)
-    except Exception as e:
+    except (KeyboardInterrupt, SystemExit):
         interrupted_path = f"{params.name}_interrupted.pth"
         logging.info(f"Received Interrupt, saving model at {interrupted_path}")
         torch.save({"model": segpose_model.state_dict()}, interrupted_path)
-        raise Exception(e)
+    except Exception as e:
+        logging.info("Received Error: ", e)
+        error_path = f"{params.name}_errored.pth"
+        torch.save({"model": segpose_model.state_dict()}, error_path)

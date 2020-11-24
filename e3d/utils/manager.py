@@ -18,6 +18,7 @@ from PIL import Image
 from pytorch3d.io import save_obj
 from pytorch3d.structures import Meshes
 from skimage import img_as_ubyte
+import matplotlib.pyplot as plt
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s, %(message)s")
 
@@ -170,6 +171,7 @@ class RenderManager:
 
     render_folder: str = "data/renders/"
     new_folder: str = ""
+    folder_name: str = ""
 
     def init(self):
         """Initialization step for the manager
@@ -193,10 +195,11 @@ class RenderManager:
             except:
                 continue
         render_posn = max(nums) + 1
-        self.folder_locs["base"] = os.path.join(
-            self.base_folder,
-            f"{render_posn:03}-{self.mesh_name}_{self.formatted_utc_ts}",
-        )
+        if not self.folder_name:
+            self.folder_name = (
+                f"{render_posn:03}-{self.mesh_name}_{self.formatted_utc_ts}"
+            )
+        self.folder_locs["base"] = os.path.join(self.base_folder, self.folder_name,)
         logging.info(f"Render Manager started in base file {self.folder_locs['base']}")
         for t in self.types:
             if t not in self.allowed_render_types:
@@ -363,9 +366,18 @@ class RenderManager:
         # self.gif_writers["events"].append_data(frame)
         self.images["events"].append(event_manager._dict)
 
-    def add_pred_mesh(self, mesh):
+    def add_pred_mesh(self, mesh: Meshes, name: str):
         assert isinstance(mesh, Meshes), "Mesh should be pytorch3d mesh object"
-        self.predicted_mesh = mesh
+        if "predicted_mesh" in self.__dict__.keys():
+            self.predicted_mesh.append((mesh, name))
+            return
+        self.predicted_mesh = [(mesh, name)]
+
+    def add_pose_plot(self, fig: plt.figure, name: str):
+        if "pose_plot" in self.__dict__.keys():
+            self.pose_plot.append((fig, name))
+            return
+        self.pose_plot = [(fig, name)]
 
     def set_metadata(self, meta: dict):
         assert isinstance(meta, dict), "Metadata should be a dictionary"
@@ -381,6 +393,7 @@ class RenderManager:
     def _dict(self):
         my_dict = asdict(self)
         my_dict["pred_results"] = True if self.pred_results else False
+        my_dict["predicted_mesh"] = True if "predicted_mesh" in my_dict else False
         return my_dict
 
     def close(self):
@@ -404,10 +417,51 @@ class RenderManager:
             with open(results_file, mode="w") as f:
                 json.dump(self.pred_results, f)
 
-        if "pred_mesh" in self.__dict__.values():
-            mesh_path = join(self.folder_locs["base"], "predicted_mesh.obj")
-            verts, faces = self.pred_mesh.get_mesh_verts_faces()
-            save_obj(mesh_path, verts, faces)
+        if "predicted_mesh" in self.__dict__.keys():
+            for mesh, name in self.predicted_mesh:
+                mesh_path = join(self.folder_locs["base"], f"predicted_mesh{name}.obj")
+                verts, faces = mesh.get_mesh_verts_faces(0)
+                save_obj(mesh_path, verts, faces)
+
+        if "pose_plot" in self.__dict__.keys():
+            for plot, name in self.pose_plot:
+                plot_path = join(self.folder_locs["base"], f"pose_plot_{name}.png")
+                plot.savefig(plot_path, dpi=plot.dpi)
+
+    def rectify_paths(self, new_folder: str = "", render_folder: str = ""):
+        """Rectifies all the paths in the info.json file
+        """
+        self.new_folder = new_folder
+        if render_folder:
+            self.render_folder = render_folder
+
+        curr_path = __file__
+        path_to_e3d = dirname(dirname(curr_path))
+        dataset_name = self.folder_locs["base"].split("/")[-1]
+        if not self.new_folder:
+            self.new_folder = self.folder_locs["base"].split("/")[-2]
+        self.base_folder = join(
+            path_to_e3d, self.render_folder, self.new_folder, dataset_name
+        )
+        self.folder_locs["base"] = self.base_folder
+        for type_key in self.images.keys():
+            for idx, img_dict in enumerate(self.images[type_key]):
+                if type_key == "events":
+                    manager = EventFrameManager.from_dict(img_dict)
+                    old_path = manager.file_name
+                    new_path = join(
+                        self.folder_locs["base"], type_key, old_path.split("/")[-1]
+                    )
+                    manager.file_name = new_path
+                else:
+                    manager = ImageManager.from_dict(img_dict)
+                    old_path = manager.image_path
+                    new_path = join(
+                        self.folder_locs["base"], type_key, old_path.split("/")[-1]
+                    )
+                    manager.image_path = new_path
+
+                self.images[type_key][idx] = manager._dict
 
     @classmethod
     def from_path(cls, path: str):
@@ -443,9 +497,10 @@ class RenderManager:
             if not os.path.exists(path_to_json) or os.path.isfile(full_path):
                 continue
             num = int(p.split("-")[0])
-            if dir_num is None or dir_num == num:
-                break
-        with open(path_to_json, "r") as f:
-            json_dict = json.load(f)
-            ret = _from_dict(cls, json_dict)
-        return ret
+            if dir_num == num:
+                with open(path_to_json, "r") as f:
+                    json_dict = json.load(f)
+                    ret = _from_dict(cls, json_dict)
+                return ret
+
+        return None

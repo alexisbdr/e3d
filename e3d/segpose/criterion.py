@@ -6,6 +6,36 @@ from utils.pose_utils import calc_vos_simple
 class PoseCriterion(nn.Module):
     def __init__(
         self,
+        t_loss_fn=nn.MSELoss(),
+        q_loss_fn=nn.MSELoss(),
+        sax=0.0,
+        saq=0.0,
+        learn_beta=False,
+    ):
+        super(PoseCriterion, self).__init__()
+        self.t_loss_fn = t_loss_fn
+        self.q_loss_fn = q_loss_fn
+        self.sax = nn.Parameter(torch.Tensor([sax]), requires_grad=learn_beta)
+        self.saq = nn.Parameter(torch.Tensor([saq]), requires_grad=learn_beta)
+
+    def forward(self, pred, targ):
+        """
+        :param pred: N x 7
+        :param targ: N x 7
+        :return:
+        """
+        loss = (
+            torch.exp(-self.sax) * self.t_loss_fn(pred[:, :3], targ[:, :3])
+            + self.sax
+            + torch.exp(-self.saq) * self.q_loss_fn(pred[:, 3:], targ[:, 3:])
+            + self.saq
+        )
+        return loss
+
+
+class PoseCriterionRel(nn.Module):
+    def __init__(
+        self,
         t_loss_fn=nn.L1Loss(),
         q_loss_fn=nn.L1Loss(),
         sax=0.0,
@@ -26,7 +56,7 @@ class PoseCriterion(nn.Module):
         :param learn_beta: learn sax and saq?
         :param learn_gamma: learn srx and srq?
         """
-        super(PoseCriterion, self).__init__()
+        super(PoseCriterionRel, self).__init__()
         self.t_loss_fn = t_loss_fn
         self.q_loss_fn = q_loss_fn
         self.sax = nn.Parameter(torch.Tensor([sax]), requires_grad=learn_beta)

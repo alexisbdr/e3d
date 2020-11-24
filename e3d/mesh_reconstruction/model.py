@@ -41,7 +41,7 @@ class MeshDeformationModel(nn.Module):
             textures=textures,
         )
 
-        self.register_buffer("vertices", self.template_mesh.verts_padded() * 1.3)
+        self.register_buffer("vertices", self.template_mesh.verts_padded())
         self.register_buffer("faces", self.template_mesh.faces_padded())
         self.register_buffer("textures", textures.verts_features_padded())
 
@@ -134,7 +134,7 @@ class MeshDeformationModel(nn.Module):
             torch.cuda.empty_cache()
         renders = dict(
             silhouettes=torch.cat(all_silhouettes).unsqueeze(-1).permute(0, 3, 1, 2),
-            images=torch.cat(all_images).permute(0, 3, 1, 2) if all_images else [],
+            images=torch.cat(all_images) if all_images else [],
         )
 
         return renders
@@ -255,27 +255,21 @@ class MeshDeformationModel(nn.Module):
                     plt.show()
 
         # Set the final optimized mesh as an internal variable
-        self.final_mesh = mesh[0]
+        self.final_mesh = mesh[0].clone()
 
         # mean_iou = IOULoss().forward(images_gt.detach().cpu(), all_silhouettes[...,-1].detach().cpu()).detach().cpu().numpy().tolist()
 
         results = dict(
-            silhouette_loss=[
-                s.detach().cpu().numpy().tolist() for s in self.losses["iou"]
-            ],
-            laplacian_loss=[
-                s.detach().cpu().numpy().tolist() for s in self.losses["laplacian"]
-            ],
-            flatten_loss=[
-                s.detach().cpu().numpy().tolist() for s in self.losses["flatten"]
-            ],
+            silhouette_loss=self.losses["iou"][-1].detach().cpu().numpy().tolist(),
+            laplacian_loss=self.losses["laplacian"][-1].detach().cpu().numpy().tolist(),
+            flatten_loss=self.losses["flatten"][-1].detach().cpu().numpy().tolist(),
             iterations_per_second=self.params.steps / (time.time() - start_time),
             total_time_s=time.time() - start_time,
         )
 
         # Release some memory being held inside class
-        self.renderer = None
-        self.optimizer = None
+        # self.renderer = None
+        # self.optimizer = None
         images_pred = None
         torch.cuda.empty_cache()
 

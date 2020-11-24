@@ -16,13 +16,13 @@ class Params(ParamsBase):
 
     # Optimizer Params
     optimizer = optim.Adam
-    learning_rate: float = 0.001
-    betas: Tuple[float, float] = (0.5, 0.99)
+    learning_rate: float = 0.005
+    betas: Tuple[float, float] = (0.9, 0.99)  # NMR: 0.5, 0.99
 
     # Weights to be applied to each loss
-    lambda_iou: float = 1
-    lambda_laplacian: float = 0.1
-    lambda_flatten: float = 0.001
+    lambda_iou: float = 1.0
+    lambda_laplacian: float = 1.0
+    lambda_flatten: float = 0.01
 
     # Experiment inforation
     experiment_name: str = ""

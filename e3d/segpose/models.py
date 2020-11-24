@@ -132,7 +132,13 @@ class SegPoseNet(nn.Module):
         self.fc = nn.Linear(self.unet.encoder_out_channel, params.feat_dim)
 
         self.fc_xyz = nn.Linear(params.feat_dim, 3)
-        self.fc_wpqr = nn.Linear(params.feat_dim, 3)
+        self.fc_wpqr = nn.Linear(params.feat_dim, 4)
+
+        init = [self.fc, self.fc_xyz, self.fc_wpqr]
+        for m in init:
+            nn.init.kaiming_normal_(m.weight.data)
+            if m.bias is not None:
+                nn.init.constant_(m.bias.data, 0)
 
     def forward(self, x):
 
@@ -175,8 +181,12 @@ class SegPoseNet(nn.Module):
             checkpoint = torch.load(
                 params.segpose_model_cpt, map_location=params.device
             )
-            net.load_state_dict(checkpoint["model"])
-
+            try:
+                net.load_state_dict(checkpoint["model"])
+            except RuntimeError:
+                del checkpoint["model"]["fc_wpqr.weight"]
+                del checkpoint["model"]["fc_wpqr.bias"]
+                net.load_state_dict(checkpoint["model"], strict=False)
         net.to(device=params.device)
 
         return net

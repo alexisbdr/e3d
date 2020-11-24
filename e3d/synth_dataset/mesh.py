@@ -111,7 +111,7 @@ def rotate_mesh_around_axis(
     R, T = look_at_view_transform(dist=dist, elev=elev, azim=azim, device=device)
 
     image_ref = renderer(meshes_world=mesh, R=R, T=T, device=device)
-    image_ref = image_ref.cpu().numpy()
+    image_ref = image_ref.cpu().numpy()[..., :3]
 
     plt.imshow(image_ref.squeeze())
     plt.show()

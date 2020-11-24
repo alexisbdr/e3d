@@ -1,4 +1,5 @@
 import argparse
+import concurrent.futures
 import logging
 import os
 import sys
@@ -33,7 +34,7 @@ def get_args():
         "--img_size",
         dest="img_size",
         type=tuple,
-        default=(1024, 960),
+        default=(560, 560),
         help="Output Image size",
     )
     parser.add_argument(
@@ -51,14 +52,14 @@ class Pano2Photo:
     """https://github.com/fuenwang/Equirec2Perspec
     """
 
-    def __init__(self, path: str, show: bool = True):
-        self.path = path
+    def __init__(
+        self, base_path: str, batch_size: int, img_size: tuple, show: bool = False
+    ):
+
+        self.base_path = base_path
+        self.batch_size = batch_size
+        self.img_size = img_size
         self.show = show
-        self._img = cv2.imread(path)
-        if self.show:
-            cv2.imshow("pano", self._img)
-            cv2.waitKey(0)
-        [self._height, self._width, _] = self._img.shape
 
     """
     def init_exr(self, path: str, show: bool = False):
@@ -76,14 +77,18 @@ class Pano2Photo:
         [self._height, self._width, _] = self._img.shape
     """
 
-    def SplitToFolder(self, batch_size: int, img_size: tuple):
+    def SplitToFolder(self, path):
         """Splits the panorama into n={batch_size} images of size = {img_size}
         Parameters:
             -batch_size: number of images to be created
             -img_size: tuple (height, width) - same row/column order as np
         """
 
-        self.base = self.path.rstrip(".jpg")
+        path = join(self.base_path, path)
+        self.base = path.rstrip(".jpg")
+
+        self._img = cv2.imread(path)
+        [self._height, self._width, _] = self._img.shape
 
         try:
             os.makedirs(self.base)
@@ -91,11 +96,12 @@ class Pano2Photo:
             print("File exists continuing")
 
         for theta in range(180, -180, -1):
-            perp = self.GetPerspective(90, theta, 0, img_size[0], img_size[1])
+            perp = self.GetPerspective(90, theta, 0, self.img_size[0], self.img_size[1])
 
             save_path = join(self.base, f"{abs(theta - 180)}.jpg")
-            print(save_path)
+            # print(save_path)
             cv2.imwrite(save_path, perp)
+        print(f"finished {path}")
 
     def GetPerspective(
         self, FOV: int, THETA: int, PHI: int, height: int, width: int, RADIUS: int = 128
@@ -183,11 +189,14 @@ if __name__ == "__main__":
 
     args = get_args()
 
-    for p in os.listdir(args.path):
-        if os.path.isdir(join(args.path, p)):
-            continue
+    images = [
+        s
+        for s in os.listdir(args.path)
+        if s.endswith(".jpg") and not os.path.isdir(join(args.path, s))
+    ]
+    pano2photo = Pano2Photo(args.path, args.batch_size, args.img_size)
+    with concurrent.futures.ProcessPoolExecutor() as executor:
         try:
-            pano2photo = Pano2Photo(join(args.path, p), show=args.show)
-            pano2photo.SplitToFolder(args.batch_size, args.img_size)
+            executor.map(pano2photo.SplitToFolder, images)
         except KeyboardInterrupt:
             logging.error("Terminating")

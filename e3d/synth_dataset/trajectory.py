@@ -7,7 +7,7 @@ from pytorch3d.transforms import (Rotate, RotateAxisAngle, Transform3d,
                                   Translate)
 from utils.shapes import SphericalSpiral
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+gendevice = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 """
@@ -60,7 +60,7 @@ TRAJECTORY GENERATORS
 """
 
 
-def cam_trajectory_rotation(device: str, num_points: int = 4):
+def cam_trajectory_rotation(num_points: int = 4, device: str = gendevice):
     """
     Returns: list of camera poses (R,T) from trajectory along a spherical spiral
     """
@@ -82,7 +82,13 @@ def cam_trajectory_rotation(device: str, num_points: int = 4):
     return (torch.stack(R)[:, 0, :], torch.stack(T)[:, 0, :])
 
 
-def cam_trajectory(variation: list, pepper: list, random_start: list, batch_size: int):
+def cam_trajectory(
+    variation: list,
+    pepper: list,
+    random_start: list,
+    batch_size: int,
+    device: str = gendevice,
+):
     """
     Generates camera poses with given parameters:
         -variation ["dist","elev"] #continuous variations along this axis
@@ -90,11 +96,11 @@ def cam_trajectory(variation: list, pepper: list, random_start: list, batch_size
         -random_start ["dist","elev","azim"] #generate a random start point):
 
     """
-    dist = 1.8 if not "dist" in random_start else random.randint(170, 190) / 100
+    dist = 1.4 if not "dist" in random_start else random.randint(14, 20) / 10
     elev = (
-        35
+        26
         if not "elev" in random_start
-        else random.choice([random.randint(-55, -20), random.randint(20, 60)])
+        else random.choice([random.randint(-55, -20), random.randint(20, 35)])
     )
     if not "azim" in random_start:
         azim_range = [0, 300]
@@ -106,13 +112,20 @@ def cam_trajectory(variation: list, pepper: list, random_start: list, batch_size
     elev = torch.tensor([elev] * batch_size)
     # Adds continuous variation along this axis
     if "dist" in variation:
-        trajectory_variation(dist, (5, 15), 100)
+        # trajectory_variation(dist, (5, 15), 100)
+        trajectory_variation(dist, (50, 55), 100)
     if "elev" in variation:
-        trajectory_variation(elev, (5, 20), 1)
+        # trajectory_variation(elev, (5, 20), 1)
+        trajectory_variation(elev, (55, 60), 1)
     if "dist" in pepper:
-        trajectory_pepper(dist, (3, 5), 500)
+        # trajectory_pepper(dist, (3, 5), 500)
+        trajectory_pepper(dist, (25, 50), 500)
     if "elev" in pepper:
-        trajectory_pepper(elev, (10, 20), 100)
+        # trajectory_pepper(elev, (10, 20), 100)
+        trajectory_pepper(elev, (350, 400), 100)
+    if "azim" in pepper:
+        # trajectory_pepper(elev, (10, 20), 100)
+        trajectory_pepper(azim, (350, 400), 100)
 
     azim = torch.linspace(azim_range[0], azim_range[1], batch_size)
 
