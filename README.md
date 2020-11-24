@@ -6,10 +6,10 @@
 * [Linux - Ubuntu16+ or/ CentOS 7]
 * [Pytorch3D]
 * [Python 3.6+]
-* [Pytorch 1.4 or 1.5]
+* [Pytorch 1.0+]
 * [gcc & g++ 4.9+]
 * [fvcore]
-* [CUDA 9.2+ (optional)]
+* [CUDA 9.2+]
 
 Install Pytorch3d & other dependencies:
 ```
@@ -31,43 +31,76 @@ Installing Pytorch3D without CUDA Support:
 pip install pytorch3d
 ```
 
-#### [SUGGESTED] EC2 Instance & Deep Learning AMI
-* [Deep Learning Base AMI](https://aws.amazon.com/marketplace/pp/B07Y3VDBNS)
-* Instance Type:
-    * testing: g4dn.xlarge
-* Storage:
-    * 50Gb of ssd
+### Other Dependencies
+Installing RPG Vid2e for the event generator 
+'''
+cd path/to/rpg_vid2e/esim_py
+pip install -e . 
+'''
 
-### OPTION 1 - [DOCKER]()
-```
-docker pull **COMING**
-docker run **WAIT**
-```
+Installing [PMO](https://github.com/chenhsuanlin/photometric-mesh-optim) - follow instructions into provided repo
 
-### OPTION 2 - MANUAL INSTALL WITH ANACONDA
-#### 1. Install Anaconda for Ubuntu
-```
-## You can visit (https://www.anaconda.com/distribution/) to install a different version of Anaconda
-cd /tmp
-curl -O https://repo.anaconda.com/archive/Anaconda3-2020.02-Linux-x86_64.sh
 
-## Check the sum
-sha256sum Anaconda3-2020.02-Linux-x86_64.sh
+## Pre-Trained Models
 
-## Run the script and answer 'yes' to everything
-bash Anaconda3-2020.02-Linux-x86_64.sh
-```
+Category | Drive Link | Chamfer Distance (GT Pose
+------------- | ------------- | -----------------
+car  | [link](https://drive.google.com/file/d/1UOdLMux0nr4S7QzST1hjyJlgeASu8JR9/view?usp=sharing)
+chair | [link](https://drive.google.com/file/d/1uQXTkqTj38UYaMY5Zk8IAZJvFTebjWsf/view?usp=sharing)
+dolphin (baseline) | [link](https://drive.google.com/file/d/1zGdw7QoPtytwQDfbYirZaWC7Ctw69kFI/view?usp=sharing) 
+dolphin (fine-tuned) | [link](https://drive.google.com/file/d/1VrA8_Dgdto-JxexaT6BwCTFw7NaR3oWT/view?usp=sharing)
+------------- | ------------- 
+car (PMO - Events) | [link](https://drive.google.com/file/d/1klYc0SkwBBGLUTJd64JjO3gJbxiPg1cp/view?usp=sharing)
+chair (PMO - Events) | [link](https://drive.google.com/file/d/1o3Dst-QRZR15Ph6YuwVkotXZVXUu1_0r/view?usp=sharing)
 
-#### 2. Create and activate the Pytorch3D environment
-```
-source activate pytorch3d
-```
-Follow instructions above for installing Pytorch3d
+## Datasets
+Toy datasets of both car and chair are provided with the code to ease reproducibility. 
 
-#### 3. Clone the repo
-```
-git clone https://github.com/alexisbdr/E3D
-```
+You will need at least 20G of space to download the datasets
+
+The datasets must be downloaded to 
+
+Name  | Category | Drive Link 
+------------- | ------------- 
+test_car_subset | car | [link]()
+test_chair_subset | chair | [link]()
+train_car_shapenet | car | [link](https://drive.google.com/file/d/1fMzvSkENq0lfqC5c6C3g34swufo3NtmV/view?usp=sharing)
+test_car_shapenet | car | [link](https://drive.google.com/file/d/1fz0Hb9WYaOB5K7DOJw3Icoc2KR6Ys2SU/view?usp=sharing)
+train_chair_shapenet | chair | [link](https://drive.google.com/file/d/1mpyYI99KmkRG72oFYB5xr_vPDOtle74i/view?usp=sharing)
+test_chair_shapenet | chair | [link](https://drive.google.com/file/d/1rXqfLmqn8yo_txmL5Mft5FmwqxERnTEx/view?usp=sharing)
+train_dolphin | dolphin | [link](https://drive.google.com/file/d/1PjR3j4CmmQhN84NohQXmT48MjWvFQSKW/view?usp=sharing)
+test_dolphin | dolphin | [link](https://drive.google.com/file/d/1TzTdCihnUlnx1-cDL1CrW_0mAJXUXjTX/view?usp=sharing)
+
+### Running pre-trained models
+Default mesh reconstruction parameters are in mesh_reconstruction/params.py
+Car:
+'''
+python predict.py --gpu 0 --model model_checkpoints/car_shapenet.pth --path data/renders/test_car_subset
+'''
+Chair:
+'''
+python predict.py --gpu 0 --model model_checkpoints/chair_shapenet.pth --path data/renders/test_chair_subset
+'''
+
+### Training
+You can find the default training parameters in segpose/params.py
+Car:
+'''
+python train-segpose.py --gpu 0 -t data/renders/train_car_shapenet --name car_shapenet
+'''
+Chair:
+'''
+python train-segpose.py --gpu 0 -t data/renders/train_chair_shapenet --name chair_shapenet
+'''
+
+### Generating a synthetic event dataset
+Default parameters are in synth_dataset/params.py
+'''
+cd synth_dataset
+python generate_dataset.py --gpu 0 --name test_car --category car
+'''
+
+
 
 ### Contributing
 Any contributions are much appreciated!!
