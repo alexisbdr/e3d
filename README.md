@@ -33,10 +33,10 @@ pip install pytorch3d
 
 ### Other Dependencies
 Installing RPG Vid2e for the event generator 
-'''
+```
 cd path/to/rpg_vid2e/esim_py
 pip install -e . 
-'''
+```
 
 Installing [PMO](https://github.com/chenhsuanlin/photometric-mesh-optim) - follow instructions into provided repo
 
@@ -74,31 +74,31 @@ test_dolphin | dolphin | [link](https://drive.google.com/file/d/1TzTdCihnUlnx1-c
 ### Running pre-trained models
 Default mesh reconstruction parameters are in mesh_reconstruction/params.py
 Car:
-'''
+```
 python predict.py --gpu 0 --model model_checkpoints/car_shapenet.pth --path data/renders/test_car_subset
-'''
+```
 Chair:
-'''
+```
 python predict.py --gpu 0 --model model_checkpoints/chair_shapenet.pth --path data/renders/test_chair_subset
-'''
+```
 
 ### Training
 You can find the default training parameters in segpose/params.py
 Car:
-'''
+```
 python train-segpose.py --gpu 0 -t data/renders/train_car_shapenet --name car_shapenet
-'''
+```
 Chair:
-'''
+```
 python train-segpose.py --gpu 0 -t data/renders/train_chair_shapenet --name chair_shapenet
-'''
+```
 
 ### Generating a synthetic event dataset
 Default parameters are in synth_dataset/params.py
-'''
+```
 cd synth_dataset
 python generate_dataset.py --gpu 0 --name test_car --category car
-'''
+```
 The dataset will be generated in data/renders by default
 
 
