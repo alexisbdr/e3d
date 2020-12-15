@@ -1,5 +1,7 @@
 # E3D: Event-Based Shape Reconstruction
 
+[ArXiv PrePrint](https://arxiv.org/abs/2012.05214)
+
 ## Running E3D
 
 ### Installing Pytorch3D
@@ -38,7 +40,7 @@ cd path/to/rpg_vid2e/esim_py
 pip install -e .
 ```
 
-Installing [PMO](https://github.com/chenhsuanlin/photometric-mesh-optim) - follow instructions into provided repo
+Follow instructions in this [repo](https://github.com/alexisbdr/photometric-mesh-optim) to install our version of PMO.
 
 
 ## Pre-Trained Models
