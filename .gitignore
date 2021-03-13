@@ -2,6 +2,7 @@
 e3d/data/*
 e3d/runs/*
 e3d/model_checkpoints/*
+pydvs/
 
 *.png
 *.gif

@@ -126,7 +126,7 @@ class EvMaskPoseDataset(Dataset):
         return torch.cat((T, q), dim=1)
 
     @classmethod
-    def preprocess_images(self, img: Image, img_size):
+    def preprocess_images(self, img: Image, img_size) -> np.ndarray:
         """Resize and normalize the images to range 0, 1
         """
         img = img.resize(img_size)
@@ -146,11 +146,20 @@ class EvMaskPoseDataset(Dataset):
     def __len__(self):
         return len(self.render_manager)
 
+    def add_noise_to_frame(frame: np.ndarray, noise_std=0.1, noise_fraction=0.1) -> np.ndarray:
+        """Gaussian noise + hot pixels
+        """
+        noise = noise_std * np.randn_like(*frame.shape)
+        if noise_fraction < 1.0:
+            noise[np.rand(*frame.shape) >= noise_fraction] = 0
+        return frame + noise
+
     def __getitem__(self, index: int):
 
         mask = self.render_manager.get_image("silhouette", index)
 
         event_frame = self.render_manager.get_event_frame(index)
+        event_frame = self.add_noise_to_frame(event_frame)
 
         R, T = self.render_manager.get_trajectory_point(index)
         tq = self.poses[index : index + 1]
