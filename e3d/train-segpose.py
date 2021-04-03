@@ -230,7 +230,8 @@ def train(segpose, params):
     train_losses = []
     val_losses = []
     fine_tuning = (
-        params.fine_tuning
+        False
+        #params.fine_tuning
     )  # True if we're running fine-tuning @ this step --> loss calc
     prev = defaultdict(list)
 
@@ -251,7 +252,7 @@ def train(segpose, params):
                 pose_gt = Variable(pose_gt).to(params.device)
 
                 # Casting variables to float
-                ev_frame = ev_frame.to(device=device, dtype=torch.float)
+                ev_frame = event_frame.to(device=device, dtype=torch.float)
                 mask_gt = mask_gt.to(device=device, dtype=torch.float)
 
                 mask_pred, pose_pred = segpose(ev_frame)
@@ -420,9 +421,9 @@ if __name__ == "__main__":
 
     # Set the device
     dev_num = params.gpu_num
-    device = torch.device(f"cuda:{dev_num}" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.info(f"Using {device} as computation device")
-    if device == f"cuda:{dev_num}":
+    if device == "cuda":
         torch.cuda.set_device()
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = dev_num

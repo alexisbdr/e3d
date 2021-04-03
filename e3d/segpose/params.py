@@ -33,7 +33,8 @@ class Params(ParamsBase):
     unet_momentum: float = 0.9
     threshold_conf: float = 0.5
     train_unet: bool = True  # Flag for whether to learn the unet layers
-    fine_tuning: bool = False
+    fine_tuning: bool = True
+    unet_end2end: bool = True
 
     # UNet Architecture Params
     n_channels: int = 1

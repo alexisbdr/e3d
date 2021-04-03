@@ -30,7 +30,7 @@ def default_tensor():
 
 
 @dataclass
-class EventFrameManager:
+class    EventFrameManager:
     """
     Contains information about a single event frame
     Serializes/De-Serialized the event frame using pickle
@@ -349,9 +349,9 @@ class RenderManager:
         T = self.images[type_key][num]["T"]
 
         img_manager = ImageManager(posn=num + 1, render_type=folder_name, R=R, T=T)
-        img_manager._save(pred, self.folder_locs[folder_name])
         img = img_as_ubyte(pred)
-        self.gif_writers[folder_name].append_data(pred)
+        img_manager._save(img, self.folder_locs[folder_name])
+        self.gif_writers[folder_name].append_data(img)
         # Append to images list
         self.images[folder_name].append(img_manager._dict)
 
@@ -428,22 +428,38 @@ class RenderManager:
                 plot_path = join(self.folder_locs["base"], f"pose_plot_{name}.png")
                 plot.savefig(plot_path, dpi=plot.dpi)
 
-    def rectify_paths(self, new_folder: str = "", render_folder: str = ""):
+    def rectify_paths(self, new_folder: str = "", render_folder: str = "", base_folder: str = ""):
         """Rectifies all the paths in the info.json file
         """
         self.new_folder = new_folder
         if render_folder:
             self.render_folder = render_folder
+        if not base_folder:
+            curr_path = __file__
+            path_to_e3d = dirname(dirname(curr_path))
+            dataset_name = self.folder_locs["base"].split("/")[-1]
+            if not self.new_folder:
+                self.new_folder = self.folder_locs["base"].split("/")[-2]
+            self.base_folder = join(
+                path_to_e3d, self.render_folder, self.new_folder, dataset_name
+            )
+        else:
+            dataset_name = self.folder_locs["base"].split("/")[-1]
+            self.base_folder = join(base_folder, dataset_name)
 
-        curr_path = __file__
-        path_to_e3d = dirname(dirname(curr_path))
-        dataset_name = self.folder_locs["base"].split("/")[-1]
-        if not self.new_folder:
-            self.new_folder = self.folder_locs["base"].split("/")[-2]
-        self.base_folder = join(
-            path_to_e3d, self.render_folder, self.new_folder, dataset_name
-        )
         self.folder_locs["base"] = self.base_folder
+
+        if base_folder:
+            for loc_key in self.folder_locs.keys():
+                if loc_key != 'base':
+                    folder = self.folder_locs[loc_key].split("/")[-1]
+                    self.folder_locs[loc_key] = join(self.folder_locs['base'], folder)
+
+            for gif_key in self.gif_writers.keys():
+                folder = self.gif_writers[gif_key].split("/")[-2:]
+                self.gif_writers[gif_key] = join(self.folder_locs['base'], folder[0], folder[1])
+
+
         for type_key in self.images.keys():
             for idx, img_dict in enumerate(self.images[type_key]):
                 if type_key == "events":
@@ -471,7 +487,8 @@ class RenderManager:
         path_to_json = join(path, "info.json")
         if not os.path.exists(path_to_json) or not os.path.isdir(path):
             raise FileNotFoundError(
-                f"Incorrect path given to from_path, please check that {path} is the correct path to the render directory you're looking for"
+                f"Incorrect path given to from_path, please ch"
+                f"eck that {path} is the correct path to the render directory you're looking for"
             )
         with open(path_to_json, "r") as f:
             json_dict = json.load(f)
@@ -479,16 +496,17 @@ class RenderManager:
         return ret
 
     @classmethod
-    def from_directory(cls, dir_num: int = None, render_folder: str = ""):
+    def from_directory(cls, dir_num: int = None, render_folder: str = "", datamode: str = ''):
         """
         Finds the most recent valid render directory or the one specified by "dir_num"
         Returns a instantiated class from that folder
         """
         if render_folder:
             cls.render_folder = render_folder
-        file_path = __file__
-        path_to_e3d = dirname(dirname(file_path))
-        render_folder = join(path_to_e3d, cls.render_folder)
+        if datamode != 'jjp':
+            file_path = __file__
+            path_to_e3d = dirname(dirname(file_path))
+            render_folder = join(path_to_e3d, cls.render_folder)
         directory_paths = sorted(os.listdir(render_folder), reverse=True)
         for p in directory_paths:
             # Check if the info.json file is present in that directory

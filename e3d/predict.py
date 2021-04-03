@@ -247,6 +247,7 @@ def main(models: dict, params: Params, mesh_type: str = "dolphin"):
         try:
             print(p)
             manager = RenderManager.from_path(p)
+            manager.rectify_paths(base_folder=params.pred_dir)
             # print(params.pred_dir.split('/')[-1])
             # manager.rectify_paths(params.pred_dir.split('/')[-1])
         except FileNotFoundError:
@@ -422,7 +423,7 @@ def main(models: dict, params: Params, mesh_type: str = "dolphin"):
             # Shapenet Cars
             elif mesh_type == "shapenet":
                 mesh_info = manager.metadata["mesh_info"]
-                path = f"data/ShapeNetCorev2/{mesh_info['synset_id']}/{mesh_info['mesh_id']}/models/model_normalized.obj"
+                path = f"/data6/jiangjianping/EventNeRF/e3d/ShapeNetCorev2/{mesh_info['synset_id']}/{mesh_info['mesh_id']}/models/model_normalized.obj"
                 try:
                     verts, faces, aux = load_obj(
                         path, load_textures=True, create_texture_atlas=True
@@ -522,7 +523,7 @@ if __name__ == "__main__":
         if real:
             real_data(models, params)
         else:
-            main(models, params)
+            main(models, params, mesh_type='shapenet')
     except KeyboardInterrupt:
         logging.error("Received interrupt terminating prediction run")
         sys.exit(0)

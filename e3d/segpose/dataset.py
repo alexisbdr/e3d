@@ -82,9 +82,9 @@ class EvMaskPoseDataset(Dataset):
         self.transforms = transforms
         try:
             self.render_manager = RenderManager.from_directory(
-                dir_num=dir_num, render_folder=params.train_dir
+                dir_num=dir_num, render_folder=params.train_dir, datamode='jjp'
             )
-            self.render_manager.rectify_paths()
+            self.render_manager.rectify_paths(base_folder=params.train_dir)
         except:
             self.render_manager = None
 
@@ -146,13 +146,17 @@ class EvMaskPoseDataset(Dataset):
     def __len__(self):
         return len(self.render_manager)
 
-    def add_noise_to_frame(frame: np.ndarray, noise_std=0.1, noise_fraction=0.1) -> np.ndarray:
+
+# TODO ?
+    def add_noise_to_frame(self, frame, noise_std=0.1, noise_fraction=0.1):
         """Gaussian noise + hot pixels
         """
-        noise = noise_std * np.randn_like(*frame.shape)
+        # noise = noise_std * np.randn_like(*frame.shape)
+        size = frame.size
+        noise = noise_std * np.random.randn(*size) * 255
         if noise_fraction < 1.0:
-            noise[np.rand(*frame.shape) >= noise_fraction] = 0
-        return frame + noise
+            noise[np.random.rand(*size) >= noise_fraction] = 0
+        return Image.fromarray((frame + noise).astype('uint8')).convert('L')
 
     def __getitem__(self, index: int):
 
