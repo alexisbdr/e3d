@@ -134,7 +134,7 @@ def get_args():
 
     return parser.parse_args()
 
-
+    # TODO ???
 def plot_cams_from_poses(pose_gt, pose_pred, device: str):
     """
     """
@@ -247,6 +247,7 @@ def main(models: dict, params: Params, mesh_type: str = "dolphin"):
         try:
             print(p)
             manager = RenderManager.from_path(p)
+            # TODO for change the dirs in the info.json
             manager.rectify_paths(base_folder=params.pred_dir)
             # print(params.pred_dir.split('/')[-1])
             # manager.rectify_paths(params.pred_dir.split('/')[-1])
@@ -259,6 +260,7 @@ def main(models: dict, params: Params, mesh_type: str = "dolphin"):
         # Collect Translation stats
         R_gt, T_gt = manager._trajectory
         poses_gt = EvMaskPoseDataset.preprocess_poses(manager._trajectory)
+        # TODO why use the std and mean of ground truth to calculate the t coordinate of pred ?
         std_T, mean_T = torch.std_mean(T_gt)
         for idx in range(len(manager)):
             try:
@@ -277,6 +279,7 @@ def main(models: dict, params: Params, mesh_type: str = "dolphin"):
             # q_pred = qexp(pose_pred[:, 3:])
             # q_targ = qexp(poses_gt[idx, 3:].unsqueeze(0))
             ####  SHOULD THIS BE NORMALIZED ??
+            # TODO ???
             q_pred = pose_pred[:, 3:]
             q_targ = poses_gt[idx, 3:]
 
@@ -346,6 +349,7 @@ def main(models: dict, params: Params, mesh_type: str = "dolphin"):
         # Plot estimated cameras
         logging.info(f"Plotting pose map")
         idx = random.sample(range(len(R_gt)), k=2)
+        # TODO ???
         pose_plot = plot_cams_from_poses(
             (R_gt[idx], T_gt[idx]), (R_pred[idx], T_pred[idx]), params.device
         )
@@ -374,6 +378,7 @@ def main(models: dict, params: Params, mesh_type: str = "dolphin"):
 
         # RUN MESH DEFORMATION
         # Run it 3 times: w/ Rot+Trans - w/ Trans+LookAt - w/ GT Pose
+        # TODO why use the ground truth to run optimization ?
         experiments = {
             "GT-Pose": [R_gt, T_gt],
             # "Rot+Trans": [R_pred, T_pred],

@@ -28,4 +28,4 @@ class Params(ParamsBase):
     experiment_name: str = ""
     test_path: str = ""
     config_file: str = ""
-    show: bool = False
+    show: bool = True

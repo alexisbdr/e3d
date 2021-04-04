@@ -428,6 +428,7 @@ class RenderManager:
                 plot_path = join(self.folder_locs["base"], f"pose_plot_{name}.png")
                 plot.savefig(plot_path, dpi=plot.dpi)
 
+    # TODO change the path of info.json if base_folder is not None. My data is stored away from the code
     def rectify_paths(self, new_folder: str = "", render_folder: str = "", base_folder: str = ""):
         """Rectifies all the paths in the info.json file
         """
@@ -495,6 +496,7 @@ class RenderManager:
             ret = _from_dict(cls, json_dict)
         return ret
 
+    # TODO change the dir when datamode == 'jjp'
     @classmethod
     def from_directory(cls, dir_num: int = None, render_folder: str = "", datamode: str = ''):
         """

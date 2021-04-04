@@ -8,7 +8,7 @@ sys.path.insert(0, abspath(join("..", dirname(os.getcwd()))))
 import json
 import logging
 import random
-
+import argparse
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -24,7 +24,7 @@ from utils.manager import ImageManager, RenderManager
 
 
 def get_args():
-
+    # TODO Change the argparse error
     parser = argparse.ArgumentParser(
         description="Mesh Reconstruction",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -50,7 +50,7 @@ def get_args():
         help="Mini batch Size",
         dest="mini_batch",
     )
-    add_argument(
+    parser.add_argument(
         "-lr",
         "--learning_rate",
         metavar="LR",

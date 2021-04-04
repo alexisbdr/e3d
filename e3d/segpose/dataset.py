@@ -84,6 +84,7 @@ class EvMaskPoseDataset(Dataset):
             self.render_manager = RenderManager.from_directory(
                 dir_num=dir_num, render_folder=params.train_dir, datamode='jjp'
             )
+            # TODO change the direction in the info.json file
             self.render_manager.rectify_paths(base_folder=params.train_dir)
         except:
             self.render_manager = None
@@ -147,7 +148,7 @@ class EvMaskPoseDataset(Dataset):
         return len(self.render_manager)
 
 
-# TODO ?
+# TODO the return type need to be Image for the __getitem__ method
     def add_noise_to_frame(self, frame, noise_std=0.1, noise_fraction=0.1):
         """Gaussian noise + hot pixels
         """
