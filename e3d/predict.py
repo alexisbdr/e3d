@@ -247,7 +247,7 @@ def main(models: dict, params: Params, mesh_type: str = "dolphin"):
         try:
             print(p)
             manager = RenderManager.from_path(p)
-            # TODO for change the dirs in the info.json
+            # TODO for change the dirs in the info.json because data dir separated from the code
             manager.rectify_paths(base_folder=params.pred_dir)
             # print(params.pred_dir.split('/')[-1])
             # manager.rectify_paths(params.pred_dir.split('/')[-1])
@@ -279,7 +279,6 @@ def main(models: dict, params: Params, mesh_type: str = "dolphin"):
             # q_pred = qexp(pose_pred[:, 3:])
             # q_targ = qexp(poses_gt[idx, 3:].unsqueeze(0))
             ####  SHOULD THIS BE NORMALIZED ??
-            # TODO ???
             q_pred = pose_pred[:, 3:]
             q_targ = poses_gt[idx, 3:]
 
@@ -349,7 +348,7 @@ def main(models: dict, params: Params, mesh_type: str = "dolphin"):
         # Plot estimated cameras
         logging.info(f"Plotting pose map")
         idx = random.sample(range(len(R_gt)), k=2)
-        # TODO ???
+
         pose_plot = plot_cams_from_poses(
             (R_gt[idx], T_gt[idx]), (R_pred[idx], T_pred[idx]), params.device
         )
@@ -378,7 +377,7 @@ def main(models: dict, params: Params, mesh_type: str = "dolphin"):
 
         # RUN MESH DEFORMATION
         # Run it 3 times: w/ Rot+Trans - w/ Trans+LookAt - w/ GT Pose
-        # TODO why use the ground truth to run optimization ?
+        # TODO why use the ground truth to run mesh optimization ?
         experiments = {
             "GT-Pose": [R_gt, T_gt],
             # "Rot+Trans": [R_pred, T_pred],
@@ -508,6 +507,7 @@ if __name__ == "__main__":
     params = Params(**args_dict)
 
     # Set the device
+    # TODO support multi-gpu?
     dev_num = params.gpu_num
     device = torch.device(f"cuda:{dev_num}" if torch.cuda.is_available() else "cpu")
     logging.info(f"Using {device} as computation device")
@@ -528,6 +528,7 @@ if __name__ == "__main__":
         if real:
             real_data(models, params)
         else:
+            # TODO support the shapenet mesh
             main(models, params, mesh_type='shapenet')
     except KeyboardInterrupt:
         logging.error("Received interrupt terminating prediction run")
