@@ -276,7 +276,7 @@ def main(params):
             image_path_list.append(join("tmp", f))
 
         event_frames = generate_event_frames(
-            image_path_list, RenderParams.img_size, RenderParams.batch_size
+            image_path_list, Params.img_size, Params.batch_size
         )
         event_count = 0
         for ev_count, frame in enumerate(event_frames):

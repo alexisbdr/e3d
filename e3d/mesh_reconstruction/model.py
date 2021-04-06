@@ -231,7 +231,7 @@ class MeshDeformationModel(nn.Module):
 
             if i % 100 == 0 and self.params.show:
                 # Write images
-                image = images_pred.detach().cpu().numpy()[0][..., -1]
+                image = images_pred.detach().cpu().numpy()[0]
 
                 if writer:
                     writer.append_data((255 * image).astype(np.uint8))

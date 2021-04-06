@@ -311,6 +311,7 @@ def main(models: dict, params: Params, mesh_type: str = "dolphin"):
         )
         T_pred = wtv_trans[:, 3, :3]
         R_pred = wtv_trans[:, :3, :3]
+        # TODO why do this?
         R_pred_test = look_at_rotation(T_pred_abs)
         T_pred_test = -torch.bmm(R_pred_test.transpose(1, 2), T_pred_abs[:, :, None])[
             :, :, 0
