@@ -4,42 +4,47 @@
 
 ### Installing Pytorch3D
 * [Linux - Ubuntu16+ or/ CentOS 7]
-* [Pytorch3D]
 * [Python 3.6+]
 * [Pytorch 1.0+]
 * [gcc & g++ 4.9+]
 * [fvcore]
-* [CUDA 9.2+]
+* [CUDA 9.2+ (If CUDA is to be used)]
 
-Install Pytorch3d & other dependencies:
+Create an [Anaconda](https://docs.anaconda.com/anaconda/install/) Environment:
 ```
-conda create -n pytorch3d python=3.7 --file environment.yml
+conda create -n pytorch3d python=3.7 --file env.yml
 conda activate pytorch3d
-conda install -c pytorch pytorch torchvision cudatoolkit=10.2
-conda install -c conda-forge -c fvcore fvcore
 ```
-Installing Pytorch3D with CUDA Support:
+
+Install a version of pytorch and torchvision suitable for your environment, see [Pytorch](https://pytorch.org/) for instructions
+
+Install Pytorch3d with CUDA Support (Change for your cuda version):
 ```
+conda install -c conda-forge -c fvcore -c iopath fvcore iopath
 conda install -c pytorch3d pytorch3d
 ```
 If you run into an "Unsatisfiable Error" with the current version of your CUDA driver then you should install Pytorch3D nighty build:
 ```
 conda install -c pytorch3d-nightly pytorch3d
 ```
+
 Installing Pytorch3D without CUDA Support:
 ```
-pip install pytorch3d
+pip install "git+https://github.com/facebookresearch/pytorch3d.git"
 ```
 
 ### Other Dependencies
-Installing [RPG Vid2e](https://github.com/alexisbdr/rpg_vid2e) for the event generator 
+Installing [RPG Vid2e](https://github.com/alexisbdr/rpg_vid2e) for the event generator. Cmake required to build the code
 ```
-cd path/to/rpg_vid2e/esim_py
+git clone https://github.com/alexisbdr/rpg_vid2e.git --recursive
+conda install -y -c conda-forge opencv tqdm scikit-video eigen boost boost-cpp pybind11
 pip install -e . 
 ```
 
-Installing [PMO](https://github.com/chenhsuanlin/photometric-mesh-optim) - follow instructions into provided repo
-
+Installing [PMO](https://github.com/alexisbdr/photometric-mesh-optim.git)
+```
+git clone https://github.com/alexisbdr/photometric-mesh-optim.git
+```
 
 ## Pre-Trained Models
 
