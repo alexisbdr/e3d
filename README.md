@@ -12,7 +12,7 @@
 
 Create an [Anaconda](https://docs.anaconda.com/anaconda/install/) Environment:
 ```
-conda create -n pytorch3d python=3.7 --file env.yml
+conda env create -n pytorch3d python=3.7 --file env.yml
 conda activate pytorch3d
 ```
 
