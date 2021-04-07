@@ -13,7 +13,7 @@
 
 Install Pytorch3d & other dependencies:
 ```
-conda create -n pytorch3d python=3.7 --file requirements.txt
+conda create -n pytorch3d python=3.7 --file environment.yml
 conda activate pytorch3d
 conda install -c pytorch pytorch torchvision cudatoolkit=10.2
 conda install -c conda-forge -c fvcore fvcore
@@ -32,7 +32,7 @@ pip install pytorch3d
 ```
 
 ### Other Dependencies
-Installing RPG Vid2e for the event generator 
+Installing [RPG Vid2e](https://github.com/alexisbdr/rpg_vid2e) for the event generator 
 ```
 cd path/to/rpg_vid2e/esim_py
 pip install -e . 
