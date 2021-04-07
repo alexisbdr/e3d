@@ -16,7 +16,13 @@ conda env create -n pytorch3d python=3.7 --file env.yml
 conda activate pytorch3d
 ```
 
-Install a version of pytorch and torchvision suitable for your environment, see [Pytorch](https://pytorch.org/) for instructions
+Install a version of pytorch and torchvision suitable for your environment, see [Pytorch](https://pytorch.org/) for instructions. For example:
+```
+#CPU Only
+conda install pytorch torchvision torchaudio cpuonly -c pytorch
+#CUDA 10.2
+conda install pytorch torchvision torchaudio cudatoolkit=10.2 -c pytorch
+```
 
 Install Pytorch3d with CUDA Support (Change for your cuda version):
 ```
