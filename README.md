@@ -19,9 +19,9 @@ conda activate pytorch3d
 Install a version of pytorch and torchvision suitable for your environment, see [Pytorch](https://pytorch.org/) for instructions. For example:
 ```
 #CPU Only
-conda install pytorch torchvision torchaudio cpuonly -c pytorch
+conda install pytorch torchvision cpuonly -c pytorch
 #CUDA 10.2
-conda install pytorch torchvision torchaudio cudatoolkit=10.2 -c pytorch
+conda install pytorch torchvision cudatoolkit=10.2 -c pytorch
 ```
 
 Install Pytorch3d with CUDA Support (Change for your cuda version):
