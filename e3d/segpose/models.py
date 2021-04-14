@@ -153,7 +153,6 @@ class SegPoseNet(nn.Module):
         x = self.fc(x)
         x = F.relu(x)
 
-        # TODO why dropout here?
         if self.droprate > 0:
             x = F.dropout(x, p=self.droprate)
 

@@ -196,7 +196,6 @@ class MeshDeformationModel(nn.Module):
             batch_silhouettes = images_gt[batch_indices]
 
             batch_R, batch_T = R[batch_indices], T[batch_indices]
-            # TODO ???
             batch_cameras = SfMPerspectiveCameras(
                 device=self.device, R=batch_R, T=batch_T
             )

@@ -134,7 +134,7 @@ def get_args():
 
     return parser.parse_args()
 
-    # TODO ???
+
 def plot_cams_from_poses(pose_gt, pose_pred, device: str):
     """
     """
@@ -247,7 +247,7 @@ def main(models: dict, params: Params, mesh_type: str = "dolphin"):
         try:
             print(p)
             manager = RenderManager.from_path(p)
-            # TODO for change the dirs in the info.json because data dir separated from the code
+            # change the dirs in the info.json because data dir separated from the code
             manager.rectify_paths(base_folder=params.pred_dir)
             # print(params.pred_dir.split('/')[-1])
             # manager.rectify_paths(params.pred_dir.split('/')[-1])
@@ -311,7 +311,7 @@ def main(models: dict, params: Params, mesh_type: str = "dolphin"):
         )
         T_pred = wtv_trans[:, 3, :3]
         R_pred = wtv_trans[:, :3, :3]
-        # TODO why do this?
+
         R_pred_test = look_at_rotation(T_pred_abs)
         T_pred_test = -torch.bmm(R_pred_test.transpose(1, 2), T_pred_abs[:, :, None])[
             :, :, 0
@@ -378,7 +378,6 @@ def main(models: dict, params: Params, mesh_type: str = "dolphin"):
 
         # RUN MESH DEFORMATION
         # Run it 3 times: w/ Rot+Trans - w/ Trans+LookAt - w/ GT Pose
-        # TODO why use the ground truth to run mesh optimization ?
         experiments = {
             "GT-Pose": [R_gt, T_gt],
             # "Rot+Trans": [R_pred, T_pred],
@@ -508,7 +507,6 @@ if __name__ == "__main__":
     params = Params(**args_dict)
 
     # Set the device
-    # TODO support multi-gpu?
     dev_num = params.gpu_num
     device = torch.device(f"cuda:{dev_num}" if torch.cuda.is_available() else "cpu")
     logging.info(f"Using {device} as computation device")
@@ -529,7 +527,6 @@ if __name__ == "__main__":
         if real:
             real_data(models, params)
         else:
-            # TODO support the shapenet mesh
             main(models, params, mesh_type='shapenet')
     except KeyboardInterrupt:
         logging.error("Received interrupt terminating prediction run")
