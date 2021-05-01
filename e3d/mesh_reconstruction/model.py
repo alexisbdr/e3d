@@ -7,15 +7,18 @@ import numpy as np
 import torch
 import torch.nn as nn
 from losses import IOULoss
-from mesh_reconstruction.params import Params
+from utils.params import Params
 from mesh_reconstruction.renderer import flat_renderer, silhouette_renderer
 from pytorch3d.loss import mesh_laplacian_smoothing, mesh_normal_consistency
-from pytorch3d.renderer import SfMPerspectiveCameras, TexturesVertex
+from pytorch3d.renderer import PerspectiveCameras, TexturesVertex
 from pytorch3d.structures import Meshes
 from pytorch3d.utils import ico_sphere
 from skimage import img_as_ubyte
 from torchvision import transforms
 from tqdm import tqdm_notebook
+from pytorch3d.transforms import Transform3d, matrix_to_quaternion, quaternion_to_matrix
+from utils.pyutils import _broadcast_bmm
+from utils.visualization import plot_pointcloud
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -29,7 +32,26 @@ class MeshDeformationModel(nn.Module):
 
         # Create a source mesh
         if not template_mesh:
-            template_mesh = ico_sphere(2, device)
+            template_mesh = ico_sphere(params.mesh_sphere_level, device)
+            template_mesh.scale_verts_(params.mesh_sphere_scale)
+
+        if params.is_real_data:
+            init_trans = Transform3d(device=device)
+            R_init = init_trans.get_matrix()[:, :3, :3]
+            qua_init = matrix_to_quaternion(R_init)
+            random_noise = (torch.randn(qua_init.shape) / params.mesh_pose_init_noise_var).to(self.device)
+            qua_init += random_noise
+
+            t_init = init_trans.get_matrix()[:, 3:, :3]
+            random_noise_t = (torch.randn(t_init.shape) / params.mesh_pose_init_noise_var).to(self.device)
+            t_init += random_noise_t
+
+            self.register_parameter(
+                'init_camera_R', nn.Parameter(qua_init).to(self.device)
+            )
+            self.register_parameter(
+                'init_camera_t', nn.Parameter(t_init).to(self.device)
+            )
 
         verts, faces = template_mesh.get_mesh_verts_faces(0)
         # Initialize each vert to have no tetxture
@@ -48,7 +70,6 @@ class MeshDeformationModel(nn.Module):
         deform_verts = torch.zeros_like(
             self.template_mesh.verts_packed(), device=device, requires_grad=True
         )
-        # deform_verts = torch.full(self.template_mesh.verts_packed().shape, 0.0, device=device, requires_grad=True)
         # Create an optimizable parameter for the mesh
         self.register_parameter(
             "deform_verts", nn.Parameter(deform_verts).to(self.device)
@@ -58,8 +79,8 @@ class MeshDeformationModel(nn.Module):
         flatten_loss = mesh_normal_consistency(template_mesh)
 
         # Create optimizer
-        self.optimizer = self.params.optimizer(
-            self.parameters(), lr=self.params.learning_rate, betas=self.params.betas
+        self.optimizer = self.params.mesh_optimizer(
+            self.parameters(), lr=self.params.mesh_learning_rate, betas=self.params.mesh_betas
         )
 
         self.losses = {"iou": [], "laplacian": [], "flatten": []}
@@ -92,7 +113,7 @@ class MeshDeformationModel(nn.Module):
         ), "Final Mesh does not exist yet - please run multi-view optimization before getting"
         return self.final_mesh
 
-    def render_final_mesh(self, poses, mode: str, out_size: list) -> dict:
+    def render_final_mesh(self, poses, mode: str, out_size: list, camera_settings=None) -> dict:
         """Renders the final mesh obtained through optimization
             Supports two modes:
                 -predict: renders both silhouettes and flat shaded images
@@ -112,7 +133,22 @@ class MeshDeformationModel(nn.Module):
         all_silhouettes = []
         all_images = []
         for i in range(0, R.shape[0]):
-            t_cameras = SfMPerspectiveCameras(device=self.device, R=R[[i]], T=T[[i]])
+            batch_R, batch_T = R[[i]], T[[i]]
+            if self.params.is_real_data:
+                init_R = quaternion_to_matrix(self.init_camera_R)
+
+                batch_R = _broadcast_bmm(batch_R, init_R)
+                batch_T = (_broadcast_bmm(batch_T[:, None, :], init_R)
+                           + self.init_camera_t.expand(batch_R.shape[0], 1, 3))[:, 0, :]
+                focal_length = torch.tensor([camera_settings[0, 0], camera_settings[1, 1]])[None]
+                principle_point = torch.tensor([camera_settings[0, 2], camera_settings[1, 2]])[None]
+                t_cameras = PerspectiveCameras(device=self.device, R=batch_R, T=batch_T,
+                                               focal_length=focal_length,
+                                               principal_point=principle_point,
+                                               image_size=((self.params.img_size[1], self.params.img_size[0]),)
+                                               )
+            else:
+                t_cameras = PerspectiveCameras(device=self.device, R=batch_R, T=batch_T)
             all_silhouettes.append(
                 sil_renderer(self._final_mesh, device=self.device, cameras=t_cameras)
                 .detach()
@@ -145,6 +181,7 @@ class MeshDeformationModel(nn.Module):
         R: torch.tensor,
         T: torch.tensor,
         writer=None,
+        camera_settings=None,
         step: int = 0,
     ):
         """
@@ -181,27 +218,42 @@ class MeshDeformationModel(nn.Module):
         if images_gt.max() > 1.0:
             images_gt = images_gt / 255.0
 
-        loop = tqdm_notebook(range(self.params.steps))
+        loop = tqdm_notebook(range(self.params.mesh_steps))
 
         start_time = time.time()
         for i in loop:
 
             batch_indices = (
                 random.choices(
-                    list(range(images_gt.shape[0])), k=self.params.batch_size
+                    list(range(images_gt.shape[0])), k=self.params.mesh_batch_size
                 )
-                if images_gt.shape[0] > self.params.batch_size
+                if images_gt.shape[0] > self.params.mesh_batch_size
                 else list(range(images_gt.shape[0]))
             )
             batch_silhouettes = images_gt[batch_indices]
 
             batch_R, batch_T = R[batch_indices], T[batch_indices]
-            batch_cameras = SfMPerspectiveCameras(
-                device=self.device, R=batch_R, T=batch_T
-            )
+            if self.params.is_real_data:
+                init_R = quaternion_to_matrix(self.init_camera_R)
+                batch_R = _broadcast_bmm(batch_R, init_R)
+                batch_T = (_broadcast_bmm(batch_T[:, None, :], init_R) +
+                           self.init_camera_t.expand(batch_R.shape[0], 1, 3))[:, 0, :]
+                focal_length = (torch.tensor([camera_settings[0, 0], camera_settings[1, 1]])[None]).expand(
+                    batch_R.shape[0], 2)
+                principle_point = (torch.tensor([camera_settings[0, 2], camera_settings[1, 2]])[None]).expand(
+                    batch_R.shape[0], 2)
+                batch_cameras = PerspectiveCameras(
+                    device=self.device, R=batch_R, T=batch_T, focal_length=focal_length,
+                    principal_point=principle_point,
+                    image_size=((self.params.img_size[1], self.params.img_size[0]),)
+                )
+            else:
+                batch_cameras = PerspectiveCameras(
+                    device=self.device, R=batch_R, T=batch_T
+                )
             # logging.info(f"Batch silhouettes shape: {batch_silhouettes.shape}, Rotation shape: {batch_R.shape}")
 
-            mesh, laplacian_loss, flatten_loss = self.forward(self.params.batch_size)
+            mesh, laplacian_loss, flatten_loss = self.forward(self.params.mesh_batch_size)
 
             images_pred = self.renderer(
                 mesh, device=self.device, cameras=batch_cameras
@@ -228,37 +280,23 @@ class MeshDeformationModel(nn.Module):
             loss.backward()
             self.optimizer.step()
 
-            if i % 100 == 0 and self.params.show:
+            if i % self.params.mesh_show_step == 0 and self.params.im_show:
                 # Write images
                 image = images_pred.detach().cpu().numpy()[0]
 
                 if writer:
                     writer.append_data((255 * image).astype(np.uint8))
-                # imageio.imsave(join(path, f"mesh_{i}.png"), (255*image).astype(np.uint8))
+                plt.imshow(images_pred.detach().cpu().numpy()[0])
+                plt.show()
+                plt.imshow(batch_silhouettes.detach().cpu().numpy()[0])
+                plt.show()
+                plot_pointcloud(mesh[0], 'Mesh deformed')
+                print(
+                    f'Pose of init camera: {self.init_camera_R.detach().cpu().numpy()}, {self.init_camera_t.detach().cpu().numpy()}')
 
-                if self.params.show:
-                    f, (ax1, ax2) = plt.subplots(1, 2)
-
-                    image = img_as_ubyte(image)
-
-                    ax1.imshow(image)
-                    ax1.set_title("Deformed Mesh")
-
-                    # ax2.plot(silhouette_losses, label="Silhouette Loss")
-                    # ax2.plot(laplacian_losses, label="Laplacian Loss")
-                    # ax2.plot(flatten_losses, label="Flatten Loss")
-                    ax2.legend(fontsize="16")
-                    ax2.set_xlabel("Iteration", fontsize="16")
-                    ax2.set_ylabel("Loss", fontsize="16")
-                    ax2.set_title("Loss vs iterations", fontsize="16")
-
-                    plt.show()
 
         # Set the final optimized mesh as an internal variable
         self.final_mesh = mesh[0].clone()
-
-        # mean_iou = IOULoss().forward(images_gt.detach().cpu(), all_silhouettes[...,-1].detach().cpu()).detach().cpu().numpy().tolist()
-
         results = dict(
             silhouette_loss=self.losses["iou"][-1].detach().cpu().numpy().tolist(),
             laplacian_loss=self.losses["laplacian"][-1].detach().cpu().numpy().tolist(),
@@ -267,10 +305,6 @@ class MeshDeformationModel(nn.Module):
             total_time_s=time.time() - start_time,
         )
 
-        # Release some memory being held inside class
-        # self.renderer = None
-        # self.optimizer = None
-        images_pred = None
         torch.cuda.empty_cache()
 
         return results

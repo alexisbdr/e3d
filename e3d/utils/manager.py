@@ -1,9 +1,7 @@
 import os
 import sys
 from os.path import abspath, dirname, join
-
 sys.path.insert(0, abspath(join("..", dirname(__file__))))
-
 import json
 import logging
 import time
@@ -30,7 +28,7 @@ def default_tensor():
 
 
 @dataclass
-class    EventFrameManager:
+class EventFrameManager:
     """
     Contains information about a single event frame
     Serializes/De-Serialized the event frame using pickle
@@ -116,15 +114,6 @@ class ImageManager:
         elif img_format == "png":
             self.extension = img_format
             img_format = "PNG"
-            # img_format = img_format.upper()
-            # Lossy conversion from float32 to uint8
-            """
-            info = np.finfo(image_data.dtype)
-            #Normalize the image
-            image_data /= info.max
-            image_data *= 255
-            image_data = image_data.astype(np.uint8)
-            """
             # Lowered the compression level for improved performance
             # Refer to this issue https://github.com/imageio/imageio/issues/387
             extra_args = {"compress_level": 3}
@@ -254,7 +243,7 @@ class RenderManager:
         """
         assert (
             index >= 0 and index <= self.count
-        ), f"Index {index} out of bounds for image type {type_key}"
+            ), f"Index {index} out of bounds for image type {type_key}"
         assert type_key in self.images, f"Incorrect Type {type_key}"
         img_dict = deepcopy(self.images[type_key][index])
         img_manager = ImageManager.from_dict(img_dict)
@@ -428,25 +417,13 @@ class RenderManager:
                 plot_path = join(self.folder_locs["base"], f"pose_plot_{name}.png")
                 plot.savefig(plot_path, dpi=plot.dpi)
 
-    # TODO change the path of info.json if base_folder is not None. My data is stored away from the code
-    def rectify_paths(self, new_folder: str = "", render_folder: str = "", base_folder: str = ""):
+    # For rectify the direction of paths in info.json
+    def rectify_paths(self, new_folder: str = "", base_folder: str = ""):
         """Rectifies all the paths in the info.json file
         """
         self.new_folder = new_folder
-        if render_folder:
-            self.render_folder = render_folder
-        if not base_folder:
-            curr_path = __file__
-            path_to_e3d = dirname(dirname(curr_path))
-            dataset_name = self.folder_locs["base"].split("/")[-1]
-            if not self.new_folder:
-                self.new_folder = self.folder_locs["base"].split("/")[-2]
-            self.base_folder = join(
-                path_to_e3d, self.render_folder, self.new_folder, dataset_name
-            )
-        else:
-            dataset_name = self.folder_locs["base"].split("/")[-1]
-            self.base_folder = join(base_folder, dataset_name)
+        dataset_name = self.folder_locs["base"].split("/")[-1]
+        self.base_folder = join(base_folder, dataset_name)
 
         self.folder_locs["base"] = self.base_folder
 
@@ -459,7 +436,6 @@ class RenderManager:
             for gif_key in self.gif_writers.keys():
                 folder = self.gif_writers[gif_key].split("/")[-2:]
                 self.gif_writers[gif_key] = join(self.folder_locs['base'], folder[0], folder[1])
-
 
         for type_key in self.images.keys():
             for idx, img_dict in enumerate(self.images[type_key]):
@@ -496,19 +472,16 @@ class RenderManager:
             ret = _from_dict(cls, json_dict)
         return ret
 
-    # TODO change the dir when datamode == 'jjp'
+    # For loading the data
     @classmethod
-    def from_directory(cls, dir_num: int = None, render_folder: str = "", datamode: str = ''):
+    def from_directory(cls, dir_num: int = None, render_folder: str = ""):
         """
         Finds the most recent valid render directory or the one specified by "dir_num"
         Returns a instantiated class from that folder
         """
+        # TODO meaning of the render folder and the dir num usage
         if render_folder:
             cls.render_folder = render_folder
-        if datamode != 'jjp':
-            file_path = __file__
-            path_to_e3d = dirname(dirname(file_path))
-            render_folder = join(path_to_e3d, cls.render_folder)
         directory_paths = sorted(os.listdir(render_folder), reverse=True)
         for p in directory_paths:
             # Check if the info.json file is present in that directory
@@ -522,5 +495,4 @@ class RenderManager:
                     json_dict = json.load(f)
                     ret = _from_dict(cls, json_dict)
                 return ret
-
         return None

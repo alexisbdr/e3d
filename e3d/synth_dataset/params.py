@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from utils.params_base import ParamsBase
+from utils.params import ParamsBase
 
 shapenet_synset_map = {
     'car': '02958343',

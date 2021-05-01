@@ -16,7 +16,7 @@ import torch
 import torch.nn as nn
 from losses import IOULoss
 from mesh_reconstruction.model import MeshDeformationModel
-from mesh_reconstruction.params import Params
+from utils.params import Params
 from mesh_reconstruction.renderer import silhouette_renderer
 from pytorch3d.io import load_obj, save_obj
 from skimage import img_as_ubyte

@@ -1,14 +1,15 @@
+import os
 import random
 from collections import OrderedDict
-
+import cv2
 import numpy as np
 import pytorch3d.transforms.rotation_conversions as rc
 import torch
 from PIL import Image
 from pytorch3d.renderer.cameras import get_world_to_view_transform
-from segpose.params import Params
-from torch.utils.data import (BatchSampler, ConcatDataset, Dataset, Sampler,
-                              SubsetRandomSampler)
+from pytorch3d.transforms import Transform3d, Rotate
+from utils.params import Params
+from torch.utils.data import (BatchSampler, ConcatDataset, Dataset, Sampler, SubsetRandomSampler)
 from utils.manager import RenderManager
 from utils.pose_utils import qlog
 
@@ -82,15 +83,11 @@ class EvMaskPoseDataset(Dataset):
         self.transforms = transforms
         try:
             self.render_manager = RenderManager.from_directory(
-                dir_num=dir_num, render_folder=params.train_dir, datamode='jjp'
+                dir_num=dir_num, render_folder=params.train_dir
             )
-            # TODO change the direction in the info.json file
             self.render_manager.rectify_paths(base_folder=params.train_dir)
         except:
             self.render_manager = None
-
-        if self.render_manager is not None:
-            self.poses = self.preprocess_poses(self.render_manager._trajectory)
 
     @classmethod
     def preprocess_poses(cls, poses: tuple):
@@ -147,12 +144,9 @@ class EvMaskPoseDataset(Dataset):
     def __len__(self):
         return len(self.render_manager)
 
-
-# TODO the return type need to be Image for the __getitem__ method
     def add_noise_to_frame(self, frame, noise_std=0.1, noise_fraction=0.1):
         """Gaussian noise + hot pixels
         """
-        # noise = noise_std * np.randn_like(*frame.shape)
         size = frame.size
         noise = noise_std * np.random.randn(*size) * 255
         if noise_fraction < 1.0:
@@ -167,7 +161,6 @@ class EvMaskPoseDataset(Dataset):
         event_frame = self.add_noise_to_frame(event_frame)
 
         R, T = self.render_manager.get_trajectory_point(index)
-        tq = self.poses[index : index + 1]
 
         assert mask.size == event_frame.size, "Mask and event frame must be same size"
 
@@ -178,33 +171,145 @@ class EvMaskPoseDataset(Dataset):
             self.preprocess_images(event_frame, self.img_size)
         ).type(torch.FloatTensor)
 
-        return event_frame, mask, R, T, tq
+        return event_frame, mask, R, T
 
 
-class EvMaskPoseBatchedDataset(Dataset):
-    def __init__(self, steps: int, dir_num: int, params, transforms: list = []):
-        """Provides a wrapper around EvMaskPoseDataset to batch the getitem call
-        """
-        self.steps = steps
-        self.dataset = EvMaskPoseDataset(dir_num, params, transforms)
+class EvimoDataset(Dataset):
+    """Dataset to manage Evimo Data"""
 
-    def __getitem__(self, index: int):
-        """Returns a set of items randomly distributed along a set interval size
-        """
-        subset = range(
-            index * self.steps - self.steps, index * self.steps + 2 * self.steps
-        )
-        sublist = [max(min(x, len(self.dataset) - 1), 0) for x in subset]
-        data = [self.dataset[i] for i in sorted(random.sample(sublist, k=self.steps))]
+    # TODO alignment of the event frames and mask frames
 
-        out_data = []
-        for elem in range(len(data[0])):
-            out_data.append(torch.cat([d[elem] for d in data], dim=0))
+    def __init__(self, path: str, num: int = -1, obj_id = "1"):
 
-        return out_data
+        self.new_camera = None
+        self.map1 = None
+        self.map2 = None
+        self.K = None
+        self.obj_id = obj_id
+
+        # TODO dependends on what event frames we can get
+        # self.slices_path = os.path.join(path, "slices")
+        self.slices_path = os.path.join(path, "img")
+        self.frames = []
+        self.masks = []
+
+        for img in os.listdir(self.slices_path):
+            img_path = os.path.join(self.slices_path, img)
+            # if img.startswith("frame_"):
+            #     self.frames.append(img_path)
+            # elif img.startswith("mask_"):
+            #     self.masks.append(img_path)
+            if img.startswith("img_"):
+                self.frames.append(img_path)
+            elif img.startswith("depth_"):
+                self.masks.append(img_path)
+        num = min(num, len(self.frames))
+        self.frames = sorted(self.frames)[:num]
+        self.masks = sorted(self.masks)[:num]
+
+        dataset_txt = eval(open(os.path.join(path, "meta.txt")).read())
+        self.frames_dict = dataset_txt["frames"]
+        self.calib = dataset_txt["meta"]
+
+        extrinsics_txt = open(os.path.join(path, "extrinsics.txt"))
+        self.cam_extr = extrinsics_txt.readline().split()
+        self.bg_extr = extrinsics_txt.readline().split()
+        self.set_undistorted_camera()
+
+    @classmethod
+    def preprocess_images(cls, img: np.ndarray) -> torch.Tensor:
+        """Normalize and convert to torch"""
+        if img.dtype == np.uint16:
+            img = img.astype(np.uint8)
+
+        if img.max() > 1:
+            img = img / 255
+
+        if len(img.shape) == 2:
+            img = np.expand_dims(img, axis=2)
+
+        torch_img = torch.from_numpy(img)
+        torch_img = torch_img.permute(2, 0, 1).float()
+
+        return torch_img
+
+    # TODO check the undistortion method
+    def set_undistorted_camera(self):
+        # evimo data is fisheye camera
+        K = np.zeros([3, 3])
+        K[0, 0] = self.calib['fy']
+        K[0, 2] = self.calib['cy']
+        K[1, 1] = self.calib['fx']
+        K[1, 2] = self.calib['cx']
+        K[2, 2] = 1.0
+        discoef = np.array([self.calib['k1'], self.calib['k2'], self.calib['k3'], self.calib['k4']])
+        w, h = self.calib['res_y'], self.calib['res_x']
+        self.K = K
+        self.new_camera = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, discoef, (w, h), new_size=(w, h))
+        self.map1, self.map2 = cv2.fisheye.initUndistortRectifyMap(K, discoef, (w, h), new_size=(w, h))
+        # alpha = 0.0
+        # self.new_camera, _ = cv2.getOptimalNewCameraMatrix(K, discoef, (w, h), alpha, (w, h))
+        # self.map1, self.map2 = cv2.initUndistortRectifyMap(K, discoef, np.eye(3), self.new_camera, (w, h), cv2.CV_32FC1)
+
+    def evimo_to_pytorch3d_xyz(self, p:dict):
+        x_pt3d = float(p["t"]["y"])
+        y_pt3d = float(p["t"]["x"])
+        z_pt3d = -float(p["t"]["z"])
+        t = torch.Tensor([x_pt3d, y_pt3d, z_pt3d]).unsqueeze(0)
+        return t
+
+    def evimo_to_pytorch3d_Rotation(self, p: dict):
+        pos_q = torch.Tensor([float(e) for e in p['q'].values()])
+        pos_R = rc.quaternion_to_matrix(pos_q)
+        pos_R = pos_R.transpose(1, 0)
+        R = torch.Tensor(np.zeros((3, 3), dtype=float))
+        R[0, 0], R[0, 1], R[0, 2] = pos_R[1, 1], pos_R[1, 0], -pos_R[1, 2]
+        R[1, 0], R[1, 1], R[1, 2] = pos_R[0, 1], pos_R[0, 0], -pos_R[0, 2]
+        R[2, 0], R[2, 1], R[2, 2] = -pos_R[2, 1], -pos_R[2, 0], pos_R[2, 2]
+        return R
+
+    def prepare_pose(self, p: dict) -> Transform3d:
+        # transform evimo coordinate system to pytorch3d coordinate system
+        pos_t = self.evimo_to_pytorch3d_Rotation(p)
+        pos_R = self.evimo_to_pytorch3d_Rotation(p)
+        R_tmp = Rotate(pos_R)
+        w2v_transform = R_tmp.translate(pos_t)
+
+        return Transform3d(matrix=w2v_transform.get_matrix())
+
+    def get_new_camera(self):
+        return self.new_camera
 
     def __len__(self):
-        return int(len(self.dataset) / self.steps)
+        return len(self.frames)
+
+    def __getitem__(self, idx: int):
+
+        # Get Event Frame and mask
+        event_frame = cv2.imread(self.frames[idx], cv2.IMREAD_UNCHANGED)
+
+        mask = cv2.imread(self.masks[idx], cv2.IMREAD_UNCHANGED)
+
+        mask = cv2.remap(mask, self.map1, self.map2, cv2.INTER_LINEAR)
+
+        mask = mask[:, :, 2]
+        mask[mask > 1] = 1
+
+        event_frame = self.preprocess_images(event_frame)
+        mask = self.preprocess_images(mask)
+
+        # Cam Pose and Object Pose
+        curr_frame = self.frames_dict[idx]
+        cam_pos = self.prepare_pose(curr_frame["cam"]["pos"])
+        obj_pos = self.prepare_pose(curr_frame[self.obj_id]["pos"])
+
+        o2c_mat = obj_pos.get_matrix()
+        R = o2c_mat[:, :3, :3]
+        t = o2c_mat[:, 3, :3]
+
+        return event_frame, mask, R, t
+
+
 
 
 def test_sampler():

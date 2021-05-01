@@ -1,0 +1,44 @@
+is_real_data = True
+name = test
+train_dir =
+pred_dir =
+model_cpt =
+gpu_num =
+
+img_size = (260, 346)
+
+batch_size = 24
+mini_batch_size = 2
+epochs = 30
+val_split = 0.1
+
+train_unet: bool = True
+unet_learning_rate: float = 1e-4
+unet_weight_decay: float = 1e-8
+unet_momentum: float = 0.9
+threshold_conf: float = 0.3
+
+n_channels: int = 3
+n_classes: int = 1
+layers = 4
+depth = 64
+bilinear: bool = True
+
+test_dir =
+im_show = True
+output_dir =
+
+evimo_obj_id = 1
+
+mesh_steps = 300
+mesh_batch_size = 24
+mesh_sphere_level = 2
+mesh_sphere_scale = 0.10
+mesh_pose_init_noise_var = 50.0
+mesh_learning_rate = 0.002
+mesh_betas = (0.9, 0.99)
+mesh_show_step = 50
+
+lambda_iou = 1.0
+lambda_laplacian = .5
+lambda_flatten = 0.05

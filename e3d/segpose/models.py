@@ -1,10 +1,9 @@
-import itertools
 import logging
-
+import os
 import torch
-import torch.nn.functional as F
 from segpose.layers import DoubleConv, Down, OutConv, Up
 from torch import nn
+import numpy as np
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -48,7 +47,7 @@ class UNet(nn.Module):
         """Method for loading the UNet either from a dict or from params
         """
         net = cls(params.n_channels, params.n_classes, params.bilinear)
-        if params.unet_model_cpt:
+        if params.model_cpt:
             checkpoint = torch.load(params.model_cpt, map_location=params.device)
             net.load_state_dict(checkpoint["model"])
 
@@ -103,10 +102,9 @@ class UNetUpdated(nn.Module):
 
     @classmethod
     def load(cls, params):
-        """Method for loading the UNet either from a dict or from params
-        """
+        # Method for loading the UNet either from a dict or from params
         net = cls(params.n_channels, params.n_classes, params.bilinear)
-        if params.unet_model_cpt:
+        if params.model_cpt:
             checkpoint = torch.load(params.model_cpt, map_location=params.device)
             net.load_state_dict(checkpoint["model"])
 
@@ -115,78 +113,126 @@ class UNetUpdated(nn.Module):
         return net
 
 
-class SegPoseNet(nn.Module):
-    """
-    Joint UNet and pose estimation wrapper
-    """
-
-    def __init__(self, unet: nn.Module, params):
-        super(SegPoseNet, self).__init__()
-
-        self.device = params.device
-        self.droprate = params.droprate
-
-        self.unet = unet
-
-        self.avgpool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Linear(self.unet.encoder_out_channel, params.feat_dim)
-
-        self.fc_xyz = nn.Linear(params.feat_dim, 3)
-        self.fc_wpqr = nn.Linear(params.feat_dim, 4)
-
-        init = [self.fc, self.fc_xyz, self.fc_wpqr]
-        for m in init:
-            nn.init.kaiming_normal_(m.weight.data)
-            if m.bias is not None:
-                nn.init.constant_(m.bias.data, 0)
-
-    def forward(self, x):
-
-        s = x.size()
-        x = x.view(-1, *s[2:]).unsqueeze(1)
-        mask_pred = self.unet(x)
-
-        x = self.unet.x5
-
-        x = self.avgpool(x)
-        x = torch.flatten(x, 1).to(self.device)
-        x = self.fc(x)
-        x = F.relu(x)
-
-        if self.droprate > 0:
-            x = F.dropout(x, p=self.droprate)
-
-        xyz = self.fc_xyz(x)
-        wpqr = self.fc_wpqr(x)
-
-        poses = torch.cat((xyz, wpqr), 1)
-        poses = poses.view(s[0], s[1], -1)
-
-        return mask_pred, poses
-
-    def parameters(self):
-        """Generator that returns parameters only for pose model
-        """
-        for name, param in self.named_parameters(recurse=True):
-            if name.split(".")[0] == "unet":
-                continue
-            yield param
+class BaseModel(nn.Module):
+    def __init__(self):
+        super(BaseModel, self).__init__()
 
     @classmethod
-    def load(cls, unet: nn.Module, params):
-        """Method for loading the UNet either from a dict or from params
-        """
-        net = cls(unet, params)
-        if params.segpose_model_cpt:
-            checkpoint = torch.load(
-                params.segpose_model_cpt, map_location=params.device
+    def load(cls, params, net=None):
+        """Method for loading models either from a dict or from params"""
+        if not net:
+            net = cls()
+
+        if params.model_cpt:
+            params.logger.info(
+                f"Loading Model using checkpoint file {params.model_cpt}"
             )
-            try:
-                net.load_state_dict(checkpoint["model"])
-            except RuntimeError:
-                del checkpoint["model"]["fc_wpqr.weight"]
-                del checkpoint["model"]["fc_wpqr.bias"]
-                net.load_state_dict(checkpoint["model"], strict=False)
+            checkpoint = torch.load(params.model_cpt, map_location=params.device)
+            net.load_state_dict(checkpoint["model"])
+        else:
+            # Apply weight initialization if there is no checkpoint to load from
+            net.apply(weights_init)
+
         net.to(device=params.device)
 
         return net
+
+    def __str__(self):
+        """
+        Model prints with number of trainable parameters
+        """
+        model_parameters = filter(lambda p: p.requires_grad, self.parameters())
+        params = sum([np.prod(p.size()) for p in model_parameters])
+        return super().__str__() + "\nTrainable parameters: {}".format(params)
+
+
+class UNetDynamic(BaseModel):
+    def __init__(
+        self,
+        in_channels,
+        n_classes,
+        depth: int = 64,
+        layers: int = 4,
+        bilinear=True,
+    ):
+        super(UNetDynamic, self).__init__()
+        self.in_channels = in_channels
+        self.n_classes = n_classes
+        self.bilinear = bilinear
+
+        if depth not in [8, 16, 32, 64]:
+            raise ValueError("Incorrect input kernel size")
+        self.depth = depth
+
+        if layers not in [1, 2, 3, 4]:
+            raise ValueError("Incorrect Layer size")
+        self.layers = layers
+
+        factor = 2 if bilinear else 1
+
+        inc = DoubleConv(in_channels, depth)
+        self.encoder = nn.ModuleList()
+        self.encoder.append(inc)
+        for i in range(layers):
+            self.encoder.append(
+                Down(
+                    depth * pow(2, i),
+                    depth * pow(2, i + 1) // (factor if i == layers - 1 else 1),
+                )
+            )
+
+        self.decoder = nn.ModuleList()
+        for i in range(layers, 0, -1):
+            self.decoder.append(
+                Up(
+                    depth * pow(2, i),
+                    depth * pow(2, i - 1) // (factor if i != 1 else 1),
+                    bilinear,
+                )
+            )
+        self.outc = OutConv(depth, n_classes)
+
+    def forward(self, x):
+        res = []
+        for i, down in enumerate(self.encoder):
+            x = down(x)
+            if i != len(self.encoder) - 1:
+                res.append(x)
+        self.encoder_out = x
+        for up in self.decoder:
+            x = up(x, res.pop())
+
+        out = self.outc(x)
+        return out
+
+    @classmethod
+    def load(cls, params):
+
+        net = cls(
+            int(params.n_channels),
+            int(params.n_classes),
+            int(params.depth),
+            int(params.layers),
+            bool(params.bilinear),
+        )
+
+        return super().load(params, net)
+
+
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find("Conv") != -1 and hasattr(m, "weight"):
+        m.weight.data.normal_(0.0, 0.02)
+    elif classname.find("BatchNorm") != -1:
+        m.weight.data.normal_(1.0, 0.02)
+        m.bias.data.fill_(0)
+
+
+# TODO for saving the model file
+# TODO for saving the config file
+def save_model(net: nn.Module, optimizer, params, epochs=None):
+    os.makedirs(f"segpose/checkpoints/{params.name}", exist_ok=True)
+    torch.save(
+        {"model": net.state_dict(), "optimizer": optimizer.state_dict()},
+        f"segpose/checkpoints/{params.name}/{params.epochs if epochs is None else epochs}-{params.epochs}E_{params.unet_learning_rate}LR_{params.img_size}IMG.pth",
+    )
