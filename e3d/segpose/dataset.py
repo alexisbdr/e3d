@@ -12,6 +12,8 @@ from utils.params import Params
 from torch.utils.data import (BatchSampler, ConcatDataset, Dataset, Sampler, SubsetRandomSampler)
 from utils.manager import RenderManager
 from utils.pose_utils import qlog
+import json
+import matplotlib.pyplot as plt
 
 
 class ConcatDataSampler(Sampler):
@@ -177,44 +179,29 @@ class EvMaskPoseDataset(Dataset):
 class EvimoDataset(Dataset):
     """Dataset to manage Evimo Data"""
 
-    # TODO alignment of the event frames and mask frames
-
-    def __init__(self, path: str, num: int = -1, obj_id = "1"):
+    def __init__(self, path: str, num: int = -1, obj_id="1", is_train=True,slice_name=''):
 
         self.new_camera = None
         self.map1 = None
         self.map2 = None
         self.K = None
+        self.discoef = None
         self.obj_id = obj_id
 
-        # TODO dependends on what event frames we can get
-        # self.slices_path = os.path.join(path, "slices")
-        self.slices_path = os.path.join(path, "img")
+        self.slices_path = os.path.join(path, slice_name)
+        self.frames_path = os.path.join(self.slices_path, 'slices')
+        if not os.path.exists(self.slices_path) or not os.path.exists(self.frames_path):
+            raise ValueError(f'Unavailable data in {self.slices_path}')
+        if is_train:
+            dataset_txt = eval(open(os.path.join(self.slices_path, "meta_train.txt")).read())
+        else:
+            dataset_txt = eval(open(os.path.join(self.slices_path, "meta_test.txt")).read())
+
+        self.calib = dataset_txt["meta"]
+        self.frames_dict = dataset_txt["frames"]
+        self.set_undistorted_camera()
         self.frames = []
         self.masks = []
-
-        for img in os.listdir(self.slices_path):
-            img_path = os.path.join(self.slices_path, img)
-            # if img.startswith("frame_"):
-            #     self.frames.append(img_path)
-            # elif img.startswith("mask_"):
-            #     self.masks.append(img_path)
-            if img.startswith("img_"):
-                self.frames.append(img_path)
-            elif img.startswith("depth_"):
-                self.masks.append(img_path)
-        num = min(num, len(self.frames))
-        self.frames = sorted(self.frames)[:num]
-        self.masks = sorted(self.masks)[:num]
-
-        dataset_txt = eval(open(os.path.join(path, "meta.txt")).read())
-        self.frames_dict = dataset_txt["frames"]
-        self.calib = dataset_txt["meta"]
-
-        extrinsics_txt = open(os.path.join(path, "extrinsics.txt"))
-        self.cam_extr = extrinsics_txt.readline().split()
-        self.bg_extr = extrinsics_txt.readline().split()
-        self.set_undistorted_camera()
 
     @classmethod
     def preprocess_images(cls, img: np.ndarray) -> torch.Tensor:
@@ -233,7 +220,7 @@ class EvimoDataset(Dataset):
 
         return torch_img
 
-    # TODO check the undistortion method
+
     def set_undistorted_camera(self):
         # evimo data is fisheye camera
         K = np.zeros([3, 3])
@@ -242,11 +229,11 @@ class EvimoDataset(Dataset):
         K[1, 1] = self.calib['fx']
         K[1, 2] = self.calib['cx']
         K[2, 2] = 1.0
-        discoef = np.array([self.calib['k1'], self.calib['k2'], self.calib['k3'], self.calib['k4']])
+        self.discoef = np.array([self.calib['k1'], self.calib['k2'], self.calib['k3'], self.calib['k4']])
         w, h = self.calib['res_y'], self.calib['res_x']
         self.K = K
-        self.new_camera = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, discoef, (w, h), new_size=(w, h))
-        self.map1, self.map2 = cv2.fisheye.initUndistortRectifyMap(K, discoef, (w, h), new_size=(w, h))
+        self.new_camera = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, self.discoef, (w, h), R=None, new_size=(w, h))
+        self.map1, self.map2 = cv2.fisheye.initUndistortRectifyMap(K, self.discoef, R=np.eye(3), P=self.new_camera, size=(w, h), m1type=cv2.CV_32FC1)
         # alpha = 0.0
         # self.new_camera, _ = cv2.getOptimalNewCameraMatrix(K, discoef, (w, h), alpha, (w, h))
         # self.map1, self.map2 = cv2.initUndistortRectifyMap(K, discoef, np.eye(3), self.new_camera, (w, h), cv2.CV_32FC1)
@@ -270,7 +257,7 @@ class EvimoDataset(Dataset):
 
     def prepare_pose(self, p: dict) -> Transform3d:
         # transform evimo coordinate system to pytorch3d coordinate system
-        pos_t = self.evimo_to_pytorch3d_Rotation(p)
+        pos_t = self.evimo_to_pytorch3d_xyz(p)
         pos_R = self.evimo_to_pytorch3d_Rotation(p)
         R_tmp = Rotate(pos_R)
         w2v_transform = R_tmp.translate(pos_t)
@@ -281,26 +268,27 @@ class EvimoDataset(Dataset):
         return self.new_camera
 
     def __len__(self):
-        return len(self.frames)
+        return len(self.frames_dict)
 
     def __getitem__(self, idx: int):
 
         # Get Event Frame and mask
-        event_frame = cv2.imread(self.frames[idx], cv2.IMREAD_UNCHANGED)
+        event_path = os.path.join(self.frames_path, self.frames_dict[idx]["event_frame"])
+        event_frame = cv2.imread(event_path, cv2.IMREAD_UNCHANGED)
+        event_frame = cv2.remap(event_frame, self.map1, self.map2, cv2.INTER_LINEAR)
 
-        mask = cv2.imread(self.masks[idx], cv2.IMREAD_UNCHANGED)
+        mask_path = os.path.join(self.frames_path, self.frames_dict[idx]["mask_frame"])
+        mask = cv2.imread(mask_path, cv2.IMREAD_UNCHANGED)
 
         mask = cv2.remap(mask, self.map1, self.map2, cv2.INTER_LINEAR)
 
-        mask = mask[:, :, 2]
+        # mask = mask[:, :, 2]
         mask[mask > 1] = 1
-
         event_frame = self.preprocess_images(event_frame)
         mask = self.preprocess_images(mask)
 
         # Cam Pose and Object Pose
         curr_frame = self.frames_dict[idx]
-        cam_pos = self.prepare_pose(curr_frame["cam"]["pos"])
         obj_pos = self.prepare_pose(curr_frame[self.obj_id]["pos"])
 
         o2c_mat = obj_pos.get_matrix()

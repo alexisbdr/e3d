@@ -20,86 +20,26 @@ from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from utils.manager import RenderManager
+import json
 from utils.visualization import plot_camera_scene
 
-# TODO config parser and config files for experiments
 def get_args():
     parser = configargparse.ArgumentParser(
         description="EvUnet Training",
         formatter_class=configargparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "is_real_data",
-        dest="is_real_data",
-        action="store_true",
-        default=Params.is_real_data,
-        help='if it is real data'
-    )
-    parser.add_argument(
         "-cfg",
         "--config",
         dest="config_file",
-        is_config_file=True,
         type=str,
         default=Params.config_file,
         help="Load Params dict from config file, file should be in cfg format",
     )
     parser.add_argument(
-        "-n", "--name", metavar="NAME", type=str, help="Model Name", dest="name",
-    )
-    # parser.add_argument(
-    #     "-e",
-    #     "--epochs",
-    #     metavar="E",
-    #     type=int,
-    #     default=Params.epochs,
-    #     help="Number of epochs",
-    #     dest="epochs",
-    # )
-    # parser.add_argument(
-    #     "-b",
-    #     "--batch-size",
-    #     metavar="B",
-    #     type=int,
-    #     default=Params.batch_size,
-    #     help="Batch size",
-    #     dest="batch_size",
-    # )
-    # parser.add_argument(
-    #     "-m",
-    #     "--model",
-    #     dest="model_cpt",
-    #     type=str,
-    #     default=Params.model_cpt,
-    #     help="Load model from a .pth file",
-    # )
-    # parser.add_argument(
-    #     "--img_size",
-    #     dest="img_size",
-    #     type=float,
-    #     default=Params.img_size,
-    #     help="Downscaling factor of the images",
-    # )
-    # parser.add_argument(
-    #     "-v",
-    #     "--validation",
-    #     dest="val_split",
-    #     type=float,
-    #     default=Params.val_split,
-    #     help="Percent of the data that is used as validation (0-100)",
-    # )
-
-    parser.add_argument(
         "--gpu", dest="gpu_num", default="0", type=str, help="GPU Device Number",
     )
-    parser.add_argument(
-        "-t",
-        "--train-dir",
-        dest="train_dir",
-        type=str,
-        default=Params.train_dir,
-        help="Path to prediction directory",
-    )
+
 
     return parser.parse_args()
 
@@ -126,13 +66,13 @@ def eval_seg_net(net, loader):
 
     seg_loss, pose_loss = 0, 0
     with tqdm(total=len(loader), desc="Validation", unit="batch", leave=False) as pbar:
-        for X, y, R, T, pose in loader:
+        for X, y, R, T in loader:
             X = Variable(X).cuda()
             y = Variable(y).cuda()
             X = X.to(device=device, dtype=torch.float)
             y = y.to(device=device, dtype=torch.float)
             with torch.no_grad():
-                out, pose_pred = net(X)
+                out = net(X)
             y = y.view(-1, *y.size()[2:]).unsqueeze(1)
             out = torch.sigmoid(out)
             out = (out > 0.5).float()
@@ -152,27 +92,28 @@ def train_evimo(model, params):
         )
     print('Prepare training data......')
     datasets = []
-    if params.evimo:
-        for directory in os.listdir(params.train_dir):
-            dir_path = os.path.join(params.train_dir, directory)
-            datasets.append(EvimoDataset(dir_path, obj_id=params.evimo_obj_id))
-            print(len(datasets[-1]))
+    for directory in os.listdir(params.train_dir):
+        dir_path = os.path.join(params.train_dir, directory)
+        if not os.path.isdir(dir_path):
+            continue
+        datasets.append(EvimoDataset(dir_path, obj_id=params.evimo_obj_id, is_train=True, slice_name=params.slice_name))
+        print(len(datasets[-1]))
 
     dataset_all = ConcatDataset(datasets)
     val_size = max(int(len(dataset_all) * params.val_split), 1)
     train_size = max(len(dataset_all) - val_size, 1)
     train_dataset, val_dataset = torch.utils.data.random_split(dataset_all, [train_size, val_size])
-    train_loader = DataLoader(train_dataset, batch_size=params.batch_size, num_workers=8, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=params.batch_size, num_workers=8, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=params.unet_batch_size, num_workers=8, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=params.unet_batch_size, num_workers=8, shuffle=True)
 
     # Criterions
-    if model.n_classes > 1:
+    if model.module.n_classes > 1:
         model_criterion = nn.CrossEntropyLoss()
     else:
         model_criterion = nn.BCEWithLogitsLoss()
 
     # Optimizer
-    model_params = model.parameters()
+    model_params = model.module.parameters()
     model_optimizer = params.unet_optimizer(
         model_params,
         lr=params.unet_learning_rate,
@@ -186,21 +127,24 @@ def train_evimo(model, params):
         for p in model_params:
             p.requires_grad = False
 
+    os.makedirs(os.path.join(params.exper_dir, 'runs'), exist_ok=True)
+    log_dir = os.path.join(params.exper_dir, f"runs/{params.name}_LR_{params.unet_learning_rate}_EPOCHS_{params.unet_epochs}_BS_{params.unet_batch_size}")
+
     writer = SummaryWriter(
-        log_dir=f"runs/{params.name}_LR_{params.pose_learning_rate}_EPOCHS_{params.epochs}_BS_{params.batch_size}_IMGSIZE_{params.img_size}"
+        log_dir=log_dir
     )
 
     val_losses = []
     step = 0
 
     model.train()
-    for epoch in range(params.epochs):
+    for epoch in range(params.unet_epochs):
         epoch_loss = 0.0
         with tqdm(
-                total=train_size, desc=f"Epoch {epoch + 1}/{params.epochs}", unit="img"
+                total=train_size, desc=f"Epoch {epoch + 1}/{params.unet_epochs}", unit="img"
         ) as pbar:
 
-            for i, (ev_frame, mask_gt, R_gt, T_gt, pose_gt) in enumerate(train_loader):
+            for i, (ev_frame, mask_gt, R_gt, T_gt) in enumerate(train_loader):
                 event_frame = Variable(ev_frame).to(params.device)
                 mask_gt = Variable(mask_gt).to(params.device)
 
@@ -222,7 +166,7 @@ def train_evimo(model, params):
 
                 loss.backward()
 
-                nn.utils.clip_grad_value_(model.parameters(), 0.1)
+                nn.utils.clip_grad_value_(model.module.parameters(), 0.1)
 
                 model_optimizer.step()
 
@@ -239,6 +183,8 @@ def train_evimo(model, params):
             val_loss = eval_seg_net(model, val_loader)
             model.train()
             val_losses.append(val_loss)
+            print(f'Epoch: {epoch} Train Loss: {epoch_loss.item()}')
+            print(f'Epoch: {epoch}  DiceCoeff: {val_loss.item()}')
 
             writer.add_scalar("DiceCoeff: ", val_loss, step)
 
@@ -256,13 +202,14 @@ def train_evimo(model, params):
                 torch.sigmoid(mask_pred) > params.threshold_conf,
                 step,
             )
-
+    writer.close()
+    model_dir = os.path.join(params.exper_dir, f"{params.name}_epochs{params.unet_epochs}_batch{params.unet_batch_size}_minibatch{params.unet_mini_batch_size}.cpt")
     torch.save(
         {
-            "model": model.state_dict(),
+            "model": model.module.state_dict(),
             "unet_optimizer": model_optimizer.state_dict(),
         },
-        f"{params.name}_epochs{params.epochs}_batch{params.batch_size}_minibatch{params.mini_batch_size}.cpt",
+        model_dir,
     )
 
 def train_synth(model, params):
@@ -296,13 +243,13 @@ def train_synth(model, params):
     val_loader = DataLoader(val_dataset, batch_sampler=val_sampler, num_workers=8)
 
     # Criterions
-    if model.n_classes > 1:
+    if model.module.n_classes > 1:
         model_criterion = nn.CrossEntropyLoss()
     else:
         model_criterion = nn.BCEWithLogitsLoss()
 
     # Optimizer
-    model_params = model.parameters()
+    model_params = model.module.parameters()
     model_optimizer = params.unet_optimizer(
         model_params,
         lr=params.unet_learning_rate,
@@ -316,8 +263,11 @@ def train_synth(model, params):
         for p in model_params:
             p.requires_grad = False
 
+    log_dir = os.path.join(params.exper_dir,
+                           f"runs/{params.name}_LR_{params.unet_learning_rate}_EPOCHS_{params.unet_epochs}_BS_{params.unet_batch_size}")
+
     writer = SummaryWriter(
-        comment=f"{params.name}_LR_{params.unet_learning_rate}_EPOCHS_{params.epochs}_BS_{params.batch_size}_IMGSIZE_{params.img_size}"
+        log_dir=log_dir
     )
 
     val_losses = []
@@ -325,11 +275,11 @@ def train_synth(model, params):
     step = 0
 
     model.train()
-    for epoch in range(params.epochs):
+    for epoch in range(params.unet_epochs):
         # logging.info(f"Starting epoch: {epoch+1}")
         epoch_loss = 0.0
         with tqdm(
-            total=train_size, desc=f"Epoch {epoch+1}/{params.epochs}", unit="img"
+            total=train_size, desc=f"Epoch {epoch+1}/{params.unet_epochs}", unit="img"
         ) as pbar:
 
             for i, (ev_frame, mask_gt, R_gt, T_gt) in enumerate(train_loader):
@@ -355,7 +305,7 @@ def train_synth(model, params):
 
                 loss.backward()
 
-                nn.utils.clip_grad_value_(model.parameters(), 0.1)
+                nn.utils.clip_grad_value_(model.module.parameters(), 0.1)
 
                 model_optimizer.step()
 
@@ -371,6 +321,8 @@ def train_synth(model, params):
             model.eval()
             val_loss = eval_seg_net(model, val_loader)
             model.train()
+            print(f'Epoch: {epoch} Train Loss: {epoch_loss.item()}')
+            print(f'Epoch: {epoch}  DiceCoeff Loss: {val_loss.item()}')
             val_losses.append(val_loss)
 
             writer.add_scalar("DiceCoeff: ", val_loss, step)
@@ -390,13 +342,14 @@ def train_synth(model, params):
                 step,
             )
 
-
+    model_dir = os.path.join(params.exper_dir,
+                             f"{params.name}_epochs{params.unet_epochs}_batch{params.unet_batch_size}_minibatch{params.unet_mini_batch_size}.cpt")
     torch.save(
         {
-            "model": model.state_dict(),
+            "model": model.module.state_dict(),
             "unet_optimizer": model_optimizer.state_dict(),
         },
-        f"{params.name}_epochs{params.epochs}_batch{params.batch_size}_minibatch{params.mini_batch_size}.cpt",
+        model_dir,
     )
 
 
@@ -406,16 +359,20 @@ if __name__ == "__main__":
 
     args = get_args()
     args_dict = vars(args)
-    params = Params(**args_dict)
+    params = Params()
+    params.config_file = args_dict['config_file']
+    params.__post_init__()
 
+    params.gpu_num = args_dict['gpu_num']
     # Set the device
     dev_num = params.gpu_num
-    device = torch.device(f"cuda:{dev_num}" if torch.cuda.is_available() else "cpu")
-    logging.info(f"Using {device} as computation device")
-    if device == f"cuda:{dev_num}":
-        torch.cuda.set_device()
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = dev_num
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
+    logging.info(f"Using {device} as computation device")
+
+    if device == f"cuda":
+        torch.cuda.set_device()
     logging.info(f"Using {device} as computation device")
     params.device = device
     logging.info(
@@ -424,22 +381,29 @@ if __name__ == "__main__":
 
     try:
         unet = UNetDynamic.load(params)
-        # unet = nn.DataParallel(unet)
+        unet = nn.DataParallel(unet).to(device)
         logging.info(unet)
         logging.info(
             f"Loaded UNet Model from {params.model_cpt}- Starting training"
         )
+        os.makedirs(params.exper_dir, exist_ok=True)
+        with open(os.path.join(params.exper_dir, 'config.json'), 'w') as file:
+            file.write(json.dumps(params.as_dict()))
         if params.is_real_data:
             train_evimo(unet, params)
         else:
             train_synth(unet, params)
 
-    # TODO name and space for model saved
     except (KeyboardInterrupt, SystemExit):
-        interrupted_path = f"{params.name}_interrupted.pth"
+        interrupted_path = os.path.join(params.exper_dir,
+                                 f"Interrupt_{params.name}_epochs{params.unet_epochs}_batch{params.unet_batch_size}_minibatch{params.unet_mini_batch_size}.cpt")
         logging.info(f"Received Interrupt, saving model at {interrupted_path}")
-        torch.save({"model": unet.state_dict()}, interrupted_path)
+        torch.save(
+            {
+                "model": unet.state_dict(),
+            },
+            interrupted_path)
     except Exception as e:
         logging.info("Received Error: ", e)
-        error_path = f"{params.name}_errored.pth"
-        torch.save({"model": unet.state_dict()}, error_path)
+        # error_path = f"{params.name}_errored.pth"
+        # torch.save({"model": unet.state_dict()}, error_path)

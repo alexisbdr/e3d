@@ -29,6 +29,11 @@ class MeshDeformationModel(nn.Module):
 
         self.device = device
         self.params = params
+        self.mesh_scale = params.mesh_sphere_scale
+        self.ico_level = params.mesh_sphere_level
+        self.is_real_data = params.is_real_data
+        self.init_pose_R = None
+        self.init_pose_t = None
 
         # Create a source mesh
         if not template_mesh:
@@ -112,6 +117,10 @@ class MeshDeformationModel(nn.Module):
             "final_mesh" in self.__dict__.keys()
         ), "Final Mesh does not exist yet - please run multi-view optimization before getting"
         return self.final_mesh
+
+    @property
+    def _get_init_pose(self):
+        return self.init_pose_R, self.init_pose_t
 
     def render_final_mesh(self, poses, mode: str, out_size: list, camera_settings=None) -> dict:
         """Renders the final mesh obtained through optimization
@@ -279,6 +288,8 @@ class MeshDeformationModel(nn.Module):
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+            if i % (self.params.mesh_show_step / 2) == 0:
+                print(f'Iteration: {i} IOU Loss: {iou_loss.item()} Flatten Loss: {flatten_loss.item()} Laplacian Loss: {laplacian_loss.item()}')
 
             if i % self.params.mesh_show_step == 0 and self.params.im_show:
                 # Write images
@@ -301,9 +312,12 @@ class MeshDeformationModel(nn.Module):
             silhouette_loss=self.losses["iou"][-1].detach().cpu().numpy().tolist(),
             laplacian_loss=self.losses["laplacian"][-1].detach().cpu().numpy().tolist(),
             flatten_loss=self.losses["flatten"][-1].detach().cpu().numpy().tolist(),
-            iterations_per_second=self.params.steps / (time.time() - start_time),
+            iterations_per_second=self.params.mesh_steps / (time.time() - start_time),
             total_time_s=time.time() - start_time,
         )
+
+        self.init_pose_R = self.init_camera_R.detach().cpu().numpy()
+        self.init_pose_t = self.init_camera_t.detach().cpu().numpy()
 
         torch.cuda.empty_cache()
 

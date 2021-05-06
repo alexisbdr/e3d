@@ -25,7 +25,7 @@ class IOULoss(nn.Module):
             predict.shape[0] == target.shape[0]
         ), "Predict and target must be same shape"
         dims = tuple(range(predict.ndimension())[1:])
-        intersect = (predict * target).sum(dims)
+        intersect = (predict * target).sum(dims) + self.eps
         union = (predict + target - predict * target).sum(dims) + self.eps
 
         return 1.0 - (intersect / union).sum() / intersect.nelement()
