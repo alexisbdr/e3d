@@ -45,14 +45,14 @@ def neg_iou_loss(predict, target):
 def discoeff_loss(predict, target):
     dims = tuple(range(predict.ndim)[1:])
     intersect = (predict * target).sum(dims)
-    union = (predict + target + 1e-6).sum(dims)
+    union = (predict + target).sum(dims) + 1e-6
     return (2 * intersect + 1e-6) / union
 
 
 def iou_loss(predict, target):
     dims = tuple(range(predict.ndim)[1:])
-    intersect = (predict * target + 1e-6).sum(dims)
-    union = (predict + target - predict * target + 1e-6).sum(dims)
+    intersect = (predict * target).sum(dims) + 1e-6
+    union = (predict + target - predict * target).sum(dims) + 1e-6
     return intersect / union
 
 
@@ -131,7 +131,7 @@ def get_args():
         help='test experiment name'
     )
     parser.add_argument(
-        '--mesh_shpere_level',
+        '--mesh_sphere_level',
         dest='mesh_sphere_level',
         type=int,
         default=Params.mesh_sphere_level,
@@ -162,6 +162,20 @@ def get_args():
         type=float,
         default=0.8,
         help='Threshold used for inliers selected in RANSAC method'
+    )
+    parser.add_argument(
+        '--ransac_model_num',
+        dest='ransac_model_num',
+        type=int,
+        default=5,
+        help='number of models used for ransac'
+    )
+    parser.add_argument(
+        '--ransac_least_samples',
+        dest='ransac_least_samples',
+        type=int,
+        default=30,
+        help='least number of views used for ransac'
     )
 
     return parser.parse_args()
@@ -290,20 +304,20 @@ def pred_evimo(unet: UNetDynamic, params: Params, device: str):
             mask_gts.append(mask_gt)
             mask_probs.append(prob)
 
-        mask_preds = torch.cat(mask_preds, dim=0)
-        mask_gts = torch.cat(mask_gts, dim=0)
-        mask_probs = torch.cat(mask_probs, dim=0)
-        R = torch.cat(R, dim=0)
-        T = torch.cat(T, dim=0)
-        ev_frames = torch.cat(ev_frames, dim=0)
+        mask_preds = torch.cat(mask_preds, dim=0).detach().cpu()
+        mask_gts = torch.cat(mask_gts, dim=0).squeeze().detach().cpu()
+        mask_probs = torch.cat(mask_probs, dim=0).detach().cpu()
+        R = torch.cat(R, dim=0).detach().cpu()
+        T = torch.cat(T, dim=0).detach().cpu()
+        ev_frames = torch.cat(ev_frames, dim=0).detach().cpu()
         camera_intrinsics = torch.tensor(dataset.get_new_camera()).to(device=device, dtype=torch.float32)
 
         iou_all = iou_loss(mask_gts, mask_preds)
         dice_iou_all = discoeff_loss(mask_gts, mask_preds)
-        print(f'[Test IOU] The IOU of the Predict Masks and GT Dice IOU: {dice_iou_all.sum().item()}  Seg IOU: {iou_all.sum().item()}')
+        print(f'[Test IOU] The IOU of the Predict Masks and GT Dice IOU: {dice_iou_all.sum().item() / dice_iou_all.shape[0]}  Seg IOU: {iou_all.sum().item() / iou_all.shape[0]}')
         with open(os.path.join(basedir, 'loss.txt'), 'w') as file:
-            file.write(f'Seg IOU:  {iou_all.sum().item()}')
-            file.write(f'Dice IOU: {dice_iou_all.sum().item()}')
+            file.write(f'Seg IOU:  {iou_all.sum().item() / iou_all.shape[0]}')
+            file.write(f'Dice IOU: {dice_iou_all.sum().item() / dice_iou_all.shape[0]}')
 
         # For all GT masks
 
@@ -324,6 +338,9 @@ def pred_evimo(unet: UNetDynamic, params: Params, device: str):
         gt_iou_gt_pred = discoeff_loss(mask_gts, mask_gts)
         gt_iou_gt_render = discoeff_loss(mask_gts, mesh_all_gt_silhouettes)
         gt_iou_pred_render = discoeff_loss(mask_gts, mesh_all_gt_silhouettes)
+
+        with open(os.path.join(basedir, 'loss.txt'), 'a+') as file:
+            file.write(f'[All GT masks]Dice IOU of GT and rendered masks : {gt_iou_gt_render.sum().item() / gt_iou_gt_render.shape[0]}')
 
         # save_plots(
         #     os.path.join(gt_mask_dir, 'results'),
@@ -360,6 +377,9 @@ def pred_evimo(unet: UNetDynamic, params: Params, device: str):
         preds_iou_gt_render = discoeff_loss(mask_gts, mesh_all_pred_silhouettes)
         preds_iou_pred_render = discoeff_loss(mask_preds, mesh_all_pred_silhouettes)
 
+        with open(os.path.join(basedir, 'loss.txt'), 'a+') as file:
+            file.write(f'[All Pred masks]Dice IOU of GT and rendered masks : {preds_iou_gt_render.sum().item() / preds_iou_gt_render.shape[0]}')
+
         # save_plots(
         #     os.path.join(pred_mask_dir, 'results'),
         #     ev_frames,
@@ -379,9 +399,9 @@ def pred_evimo(unet: UNetDynamic, params: Params, device: str):
         logging.info("Start RANSAC Method Mesh Optimization!")
         best_num = 0
         best_mesh = None
-        ransac_iou_threshold = 0.8
-        ransac_model_num = 5
-        ransac_least_samples = 30
+        ransac_iou_threshold = params.ransac_iou_threshold
+        ransac_model_num = params.ransac_model_num
+        ransac_least_samples = params.ransac_least_samples
         for id in range(ransac_model_num):
             logging.info("The {} model for RANSAC: ".format(id))
             idx = random.sample(list(range(len(mask_preds))), ransac_least_samples)
@@ -394,13 +414,13 @@ def pred_evimo(unet: UNetDynamic, params: Params, device: str):
             res = mesh_model.run_optimization(mask_preds_ran.to(device), R_ran.to(device),
                                                        T_ran.to(device),
                                                         camera_settings=camera_intrinsics)
-            renders = mesh_model.render_final_mesh((R_ran.to(device), T_ran.to(device)), "predict",
-                                                                     mask_preds_ran.shape[-2:],
+            renders = mesh_model.render_final_mesh((R.to(device), T.to(device)), "predict",
+                                                                     mask_preds.shape[-2:],
                                                                      camera_settings=camera_intrinsics)
 
             mesh_silhouettes = renders["silhouettes"].squeeze(1)
 
-            dice = discoeff_loss(mask_preds_ran, mesh_silhouettes)
+            dice = discoeff_loss(mask_preds, mesh_silhouettes)
             num_over_threshold = (dice > ransac_iou_threshold).sum().item()
             if num_over_threshold > best_num:
                 # best_idx = idx
@@ -413,6 +433,7 @@ def pred_evimo(unet: UNetDynamic, params: Params, device: str):
         dice = discoeff_loss(mask_preds, mesh_silhouettes)
         idx_over_threshold = dice > ransac_iou_threshold
         num_inliers = idx_over_threshold.sum().item()
+        print(f'Inliers final: {num_inliers} / {mask_preds.shape[0]}')
         mask_preds_refine = mask_preds[idx_over_threshold]
         R_refine = R[idx_over_threshold]
         T_refine = T[idx_over_threshold]
@@ -435,13 +456,23 @@ def pred_evimo(unet: UNetDynamic, params: Params, device: str):
         ransac_iou_gt_render = discoeff_loss(mask_gts, mesh_ransac_silhouettes)
         ransac_iou_pred_render = discoeff_loss(mask_preds, mesh_ransac_silhouettes)
 
+        with open(os.path.join(basedir, 'loss.txt'), 'a+') as file:
+            file.write(f'[RANSAC masks]Dice IOU of GT and rendered masks : {ransac_iou_gt_render.sum().item() / ransac_iou_gt_render.shape[0]}')
+
         res_dir = os.path.join(basedir, 'all_results')
+
+        plt.rc('font', size=8)
+        plt.rc('axes', titlesize=8)
+        plt.rc('axes', labelsize=8)
+        plt.rc('xtick', labelsize=8)
+        plt.rc('ytick', labelsize=8)
+
         os.makedirs(res_dir, exist_ok=True)
         for count in range(mask_gts.shape[0]):
-            plt.figure(figsize=(8, 4),dpi=144)
+            plt.figure(figsize=(8, 4),dpi=288)
             plt.subplot(241)
             plt.title("event frame")
-            plt.imshow(ev_frames[count].reshape(ev_frames[count].shape[1], ev_frames[count].shape[2], -1))
+            plt.imshow(ev_frames[count].permute(1, 2, 0))
             plt.subplot(242)
             plt.title("gt mask ")
             plt.imshow(mask_gts[count])
@@ -462,7 +493,7 @@ def pred_evimo(unet: UNetDynamic, params: Params, device: str):
             plt.imshow(mesh_all_pred_images[count])
             plt.subplot(248)
             plt.title("ransac render %.3f" % ransac_iou_gt_render[count] + " Inlier" if idx_over_threshold[count].item() else "")
-            plt.imshow(mesh_all_pred_silhouettes[count])
+            plt.imshow(mesh_ransac_silhouettes[count])
 
             plt.savefig(os.path.join(res_dir, f'{count}.png'))
             plt.show()

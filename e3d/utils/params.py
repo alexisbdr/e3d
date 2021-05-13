@@ -87,7 +87,9 @@ class Params(ParamsBase):
     lambda_laplacian: float = .5
     lambda_flatten: float = 0.05
 
-    ransac_iou_threshold = 0.8
+    ransac_iou_threshold: int = 0.8
+    ransac_least_samples: int = 30
+    ransac_model_num: int = 5
 
     # for mesh load
     gt_mesh_path: str = ''

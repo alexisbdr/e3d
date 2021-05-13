@@ -232,11 +232,11 @@ class EvimoDataset(Dataset):
         self.discoef = np.array([self.calib['k1'], self.calib['k2'], self.calib['k3'], self.calib['k4']])
         w, h = self.calib['res_y'], self.calib['res_x']
         self.K = K
-        self.new_camera = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, self.discoef, (w, h), R=None, new_size=(w, h))
-        self.map1, self.map2 = cv2.fisheye.initUndistortRectifyMap(K, self.discoef, R=np.eye(3), P=self.new_camera, size=(w, h), m1type=cv2.CV_32FC1)
-        # alpha = 0.0
-        # self.new_camera, _ = cv2.getOptimalNewCameraMatrix(K, discoef, (w, h), alpha, (w, h))
-        # self.map1, self.map2 = cv2.initUndistortRectifyMap(K, discoef, np.eye(3), self.new_camera, (w, h), cv2.CV_32FC1)
+        # self.new_camera = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, self.discoef, (w, h), R=None, new_size=(w, h))
+        # self.map1, self.map2 = cv2.fisheye.initUndistortRectifyMap(K, self.discoef, R=np.eye(3), P=self.new_camera, size=(w, h), m1type=cv2.CV_32FC1)
+        alpha = 0.0
+        self.new_camera, _ = cv2.getOptimalNewCameraMatrix(K, self.discoef, (w, h), alpha, (w, h))
+        self.map1, self.map2 = cv2.initUndistortRectifyMap(K, self.discoef, np.eye(3), self.new_camera, (w, h), cv2.CV_32FC1)
 
     def evimo_to_pytorch3d_xyz(self, p:dict):
         x_pt3d = float(p["t"]["y"])

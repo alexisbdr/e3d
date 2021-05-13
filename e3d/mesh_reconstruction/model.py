@@ -247,6 +247,9 @@ class MeshDeformationModel(nn.Module):
                 batch_R = _broadcast_bmm(batch_R, init_R)
                 batch_T = (_broadcast_bmm(batch_T[:, None, :], init_R) +
                            self.init_camera_t.expand(batch_R.shape[0], 1, 3))[:, 0, :]
+                # batch_R_new = _broadcast_bmm(init_R, batch_R)
+                # batch_T = (_broadcast_bmm(self.init_camera_t.expand(batch_R.shape[0], 1, 3), batch_R) + batch_T[:, None, :])[:, 0, :]
+                # batch_R = batch_R_new
                 focal_length = (torch.tensor([camera_settings[0, 0], camera_settings[1, 1]])[None]).expand(
                     batch_R.shape[0], 2)
                 principle_point = (torch.tensor([camera_settings[0, 2], camera_settings[1, 2]])[None]).expand(
