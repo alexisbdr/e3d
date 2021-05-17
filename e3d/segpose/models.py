@@ -226,13 +226,3 @@ def weights_init(m):
     elif classname.find("BatchNorm") != -1:
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
-
-
-# TODO for saving the model file
-# TODO for saving the config file
-def save_model(net: nn.Module, optimizer, params, epochs=None):
-    os.makedirs(f"segpose/checkpoints/{params.name}", exist_ok=True)
-    torch.save(
-        {"model": net.state_dict(), "optimizer": optimizer.state_dict()},
-        f"segpose/checkpoints/{params.name}/{params.epochs if epochs is None else epochs}-{params.epochs}E_{params.unet_learning_rate}LR_{params.img_size}IMG.pth",
-    )

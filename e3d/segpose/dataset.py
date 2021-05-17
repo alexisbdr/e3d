@@ -11,7 +11,6 @@ from pytorch3d.transforms import Transform3d, Rotate
 from utils.params import Params
 from torch.utils.data import (BatchSampler, ConcatDataset, Dataset, Sampler, SubsetRandomSampler)
 from utils.manager import RenderManager
-from utils.pose_utils import qlog
 import json
 import matplotlib.pyplot as plt
 
@@ -179,7 +178,7 @@ class EvMaskPoseDataset(Dataset):
 class EvimoDataset(Dataset):
     """Dataset to manage Evimo Data"""
 
-    def __init__(self, path: str, num: int = -1, obj_id="1", is_train=True,slice_name=''):
+    def __init__(self, path: str, obj_id="1", is_train=True,slice_name=''):
 
         self.new_camera = None
         self.map1 = None
@@ -200,8 +199,6 @@ class EvimoDataset(Dataset):
         self.calib = dataset_txt["meta"]
         self.frames_dict = dataset_txt["frames"]
         self.set_undistorted_camera()
-        self.frames = []
-        self.masks = []
 
     @classmethod
     def preprocess_images(cls, img: np.ndarray) -> torch.Tensor:
@@ -229,22 +226,30 @@ class EvimoDataset(Dataset):
         K[1, 1] = self.calib['fx']
         K[1, 2] = self.calib['cx']
         K[2, 2] = 1.0
-        self.discoef = np.array([self.calib['k1'], self.calib['k2'], self.calib['k3'], self.calib['k4']])
+        # for fisheye
+        # self.discoef = np.array([self.calib['k1'],
+        # self.calib['k2'], self.calib['k3'], self.calib['k4']])
+        # self.new_camera = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(
+        # K, self.discoef, (w, h), R=None, new_size=(w, h))
+        # self.map1, self.map2 = cv2.fisheye.initUndistortRectifyMap(
+        # K, self.discoef, R=np.eye(3), P=self.new_camera, size=(w, h), m1type=cv2.CV_32FC1)
         w, h = self.calib['res_y'], self.calib['res_x']
         self.K = K
-        # self.new_camera = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, self.discoef, (w, h), R=None, new_size=(w, h))
-        # self.map1, self.map2 = cv2.fisheye.initUndistortRectifyMap(K, self.discoef, R=np.eye(3), P=self.new_camera, size=(w, h), m1type=cv2.CV_32FC1)
+        # for rodtan undistortion
         alpha = 0.0
+        self.discoef = np.array([self.calib['k1'], self.calib['k2'], 0.0, 0.0, self.calib['k3'], self.calib['k4']])
         self.new_camera, _ = cv2.getOptimalNewCameraMatrix(K, self.discoef, (w, h), alpha, (w, h))
         self.map1, self.map2 = cv2.initUndistortRectifyMap(K, self.discoef, np.eye(3), self.new_camera, (w, h), cv2.CV_32FC1)
 
-    def evimo_to_pytorch3d_xyz(self, p:dict):
+    @classmethod
+    def evimo_to_pytorch3d_xyz(self, p: dict):
         x_pt3d = float(p["t"]["y"])
         y_pt3d = float(p["t"]["x"])
         z_pt3d = -float(p["t"]["z"])
         t = torch.Tensor([x_pt3d, y_pt3d, z_pt3d]).unsqueeze(0)
         return t
 
+    @classmethod
     def evimo_to_pytorch3d_Rotation(self, p: dict):
         pos_q = torch.Tensor([float(e) for e in p['q'].values()])
         pos_R = rc.quaternion_to_matrix(pos_q)
@@ -279,7 +284,6 @@ class EvimoDataset(Dataset):
 
         mask_path = os.path.join(self.frames_path, self.frames_dict[idx]["mask_frame"])
         mask = cv2.imread(mask_path, cv2.IMREAD_UNCHANGED)
-
         mask = cv2.remap(mask, self.map1, self.map2, cv2.INTER_LINEAR)
 
         # mask = mask[:, :, 2]

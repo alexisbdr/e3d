@@ -23,7 +23,6 @@ class DoubleConv(nn.Module):
         )
 
     def forward(self, x):
-        # return F.relu(self.output_bn(self.output_conv(F.relu(self.input_bn(self.input_conv(x))))))
         return self.double_conv(x)
 
 

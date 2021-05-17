@@ -13,7 +13,6 @@ from pytorch3d.loss import mesh_laplacian_smoothing, mesh_normal_consistency
 from pytorch3d.renderer import PerspectiveCameras, TexturesVertex
 from pytorch3d.structures import Meshes
 from pytorch3d.utils import ico_sphere
-from skimage import img_as_ubyte
 from torchvision import transforms
 from tqdm import tqdm_notebook
 from pytorch3d.transforms import Transform3d, matrix_to_quaternion, quaternion_to_matrix
@@ -40,6 +39,10 @@ class MeshDeformationModel(nn.Module):
             template_mesh = ico_sphere(params.mesh_sphere_level, device)
             template_mesh.scale_verts_(params.mesh_sphere_scale)
 
+        # for EVIMO data, we need to apply a delta Transform to adjust the pose in the EVIMO coordinate system
+        # to PyTorch3D system
+        # Since we don't know the initial transform, we optimize the initial pose as a parameter while render the mesh
+        # initialize the delta Transform
         if params.is_real_data:
             init_trans = Transform3d(device=device)
             R_init = init_trans.get_matrix()[:, :3, :3]
@@ -80,9 +83,6 @@ class MeshDeformationModel(nn.Module):
             "deform_verts", nn.Parameter(deform_verts).to(self.device)
         )
 
-        laplacian_loss = mesh_laplacian_smoothing(template_mesh, method="uniform")
-        flatten_loss = mesh_normal_consistency(template_mesh)
-
         # Create optimizer
         self.optimizer = self.params.mesh_optimizer(
             self.parameters(), lr=self.params.mesh_learning_rate, betas=self.params.mesh_betas
@@ -120,6 +120,9 @@ class MeshDeformationModel(nn.Module):
 
     @property
     def _get_init_pose(self):
+        """
+        Get the initial pose of the EVIMO mesh model
+        """
         return self.init_pose_R, self.init_pose_t
 
     def render_final_mesh(self, poses, mode: str, out_size: list, camera_settings=None) -> dict:
@@ -145,7 +148,6 @@ class MeshDeformationModel(nn.Module):
             batch_R, batch_T = R[[i]], T[[i]]
             if self.params.is_real_data:
                 init_R = quaternion_to_matrix(self.init_camera_R)
-
                 batch_R = _broadcast_bmm(batch_R, init_R)
                 batch_T = (_broadcast_bmm(batch_T[:, None, :], init_R)
                            + self.init_camera_t.expand(batch_R.shape[0], 1, 3))[:, 0, :]
@@ -231,7 +233,6 @@ class MeshDeformationModel(nn.Module):
 
         start_time = time.time()
         for i in loop:
-
             batch_indices = (
                 random.choices(
                     list(range(images_gt.shape[0])), k=self.params.mesh_batch_size
@@ -242,18 +243,18 @@ class MeshDeformationModel(nn.Module):
             batch_silhouettes = images_gt[batch_indices]
 
             batch_R, batch_T = R[batch_indices], T[batch_indices]
+            # apply right transform on the Twv to adjust the coordinate system shift from EVIMO to PyTorch3D
             if self.params.is_real_data:
                 init_R = quaternion_to_matrix(self.init_camera_R)
                 batch_R = _broadcast_bmm(batch_R, init_R)
                 batch_T = (_broadcast_bmm(batch_T[:, None, :], init_R) +
                            self.init_camera_t.expand(batch_R.shape[0], 1, 3))[:, 0, :]
-                # batch_R_new = _broadcast_bmm(init_R, batch_R)
-                # batch_T = (_broadcast_bmm(self.init_camera_t.expand(batch_R.shape[0], 1, 3), batch_R) + batch_T[:, None, :])[:, 0, :]
-                # batch_R = batch_R_new
                 focal_length = (torch.tensor([camera_settings[0, 0], camera_settings[1, 1]])[None]).expand(
                     batch_R.shape[0], 2)
                 principle_point = (torch.tensor([camera_settings[0, 2], camera_settings[1, 2]])[None]).expand(
                     batch_R.shape[0], 2)
+                # FIXME: in my PyTorch3D, the image_size in RasterizationSettings is (W, H), while in PerspectiveCameras is (H, W)
+                # We hope PyTorch3D will solve this issue in the future
                 batch_cameras = PerspectiveCameras(
                     device=self.device, R=batch_R, T=batch_T, focal_length=focal_length,
                     principal_point=principle_point,
@@ -263,7 +264,6 @@ class MeshDeformationModel(nn.Module):
                 batch_cameras = PerspectiveCameras(
                     device=self.device, R=batch_R, T=batch_T
                 )
-            # logging.info(f"Batch silhouettes shape: {batch_silhouettes.shape}, Rotation shape: {batch_R.shape}")
 
             mesh, laplacian_loss, flatten_loss = self.forward(self.params.mesh_batch_size)
 
@@ -272,7 +272,6 @@ class MeshDeformationModel(nn.Module):
             )[..., -1]
 
             iou_loss = IOULoss().forward(batch_silhouettes, images_pred)
-            # ssd_loss = torch.sum((images_gt - images_pred[...,-1]) ** 2).mean()
 
             loss = (
                 iou_loss * self.params.lambda_iou
@@ -292,7 +291,7 @@ class MeshDeformationModel(nn.Module):
             loss.backward()
             self.optimizer.step()
             if i % (self.params.mesh_show_step / 2) == 0:
-                print(f'Iteration: {i} IOU Loss: {iou_loss.item()} Flatten Loss: {flatten_loss.item()} Laplacian Loss: {laplacian_loss.item()}')
+                logging.info(f'Iteration: {i} IOU Loss: {iou_loss.item()} Flatten Loss: {flatten_loss.item()} Laplacian Loss: {laplacian_loss.item()}')
 
             if i % self.params.mesh_show_step == 0 and self.params.im_show:
                 # Write images
@@ -305,8 +304,7 @@ class MeshDeformationModel(nn.Module):
                 plt.imshow(batch_silhouettes.detach().cpu().numpy()[0])
                 plt.show()
                 plot_pointcloud(mesh[0], 'Mesh deformed')
-                print(
-                    f'Pose of init camera: {self.init_camera_R.detach().cpu().numpy()}, {self.init_camera_t.detach().cpu().numpy()}')
+                logging.info(f'Pose of init camera: {self.init_camera_R.detach().cpu().numpy()}, {self.init_camera_t.detach().cpu().numpy()}')
 
 
         # Set the final optimized mesh as an internal variable

@@ -44,20 +44,6 @@ def get_args():
     return parser.parse_args()
 
 
-def plot_cams_from_poses(pose_gt, pose_pred, device: str):
-    """
-    """
-    R_gt, T_gt = pose_gt
-    R_pred, T_pred = pose_pred
-
-    cameras_gt = PerspectiveCameras(device=device, R=R_gt, T=T_gt)
-    cameras_pred = PerspectiveCameras(device=device, R=R_pred, T=T_pred)
-
-    fig = plot_camera_scene(cameras_pred, cameras_gt, "final_preds", params.device)
-
-    return fig
-
-
 def eval_seg_net(net, loader):
     """
     Evaluation approach for the segmentation net
@@ -211,6 +197,7 @@ def train_evimo(model, params):
         },
         model_dir,
     )
+
 
 def train_synth(model, params):
 
