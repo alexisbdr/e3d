@@ -237,7 +237,7 @@ class EvimoDataset(Dataset):
         self.K = K
         # for rodtan undistortion
         alpha = 0.0
-        self.discoef = np.array([self.calib['k1'], self.calib['k2'], 0.0, 0.0, self.calib['k3'], self.calib['k4']])
+        self.discoef = np.array([self.calib['k1'], self.calib['k2'], 0.0, 0.0, self.calib['k3']])
         self.new_camera, _ = cv2.getOptimalNewCameraMatrix(K, self.discoef, (w, h), alpha, (w, h))
         self.map1, self.map2 = cv2.initUndistortRectifyMap(K, self.discoef, np.eye(3), self.new_camera, (w, h), cv2.CV_32FC1)
 

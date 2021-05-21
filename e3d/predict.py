@@ -4,7 +4,7 @@ import os
 import random
 import sys
 from os.path import abspath, join
-
+from skimage import img_as_ubyte
 import cv2
 import numpy as np
 import pytorch3d.transforms.rotation_conversions as rc
@@ -30,6 +30,8 @@ from utils.pose_utils import qexp, qlog, quaternion_angular_error
 from utils.visualization import (plot_camera_scene, plot_img_and_mask,
                                  plot_trajectory_cameras)
 from torch.utils.data import DataLoader
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import json
 
@@ -260,8 +262,7 @@ def pred_evimo(unet: UNetDynamic, params: Params, device: str):
         dice_iou_all = discoeff_loss(mask_gts, mask_preds)
         logging.info(f'[Test IOU] The IOU of the Predict Masks and GT Dice IOU: {dice_iou_all.sum().item() / dice_iou_all.shape[0]}  Neg IOU: {iou_all.sum().item() / iou_all.shape[0]}')
         with open(os.path.join(basedir, 'loss.txt'), 'w') as file:
-            file.write(f'Neg IOU:  {iou_all.sum().item() / iou_all.shape[0]}')
-            file.write(f'Dice IOU: {dice_iou_all.sum().item() / dice_iou_all.shape[0]}')
+            file.write(f'[Test IOU] The IOU of the Predict Masks and GT Dice IOU: {dice_iou_all.sum().item() / dice_iou_all.shape[0]}  Neg IOU: {iou_all.sum().item() / iou_all.shape[0]}\n')
 
         # For all GT masks run mesh reconstruction
 
@@ -285,7 +286,8 @@ def pred_evimo(unet: UNetDynamic, params: Params, device: str):
         # gt_iou_pred_render = discoeff_loss(mask_gts, mesh_all_gt_silhouettes)
 
         with open(os.path.join(basedir, 'loss.txt'), 'a+') as file:
-            file.write(f'[All GT masks]IOU of GT and rendered masks Dice IOU: {gt_iou_gt_render.sum().item() / gt_iou_gt_render.shape[0]}  Neg IOU : {gt_iou_all.sum().item() / gt_iou_all.shape[0]}')
+            file.write(f'[All GT masks]IOU of GT and rendered masks Dice IOU: {gt_iou_gt_render.sum().item() / gt_iou_gt_render.shape[0]}  Neg IOU : {gt_iou_all.sum().item() / gt_iou_all.shape[0]}\n')
+            logging.info(f'[All GT masks]IOU of GT and rendered masks Dice IOU: {gt_iou_gt_render.sum().item() / gt_iou_gt_render.shape[0]}  Neg IOU : {gt_iou_all.sum().item() / gt_iou_all.shape[0]}')
 
         # For all prediction masks for mesh R=reconstruction
 
@@ -311,7 +313,8 @@ def pred_evimo(unet: UNetDynamic, params: Params, device: str):
         preds_iou_pred_render = discoeff_loss(mask_preds, mesh_all_pred_silhouettes)
 
         with open(os.path.join(basedir, 'loss.txt'), 'a+') as file:
-            file.write(f'[All Pred masks]IOU of GT and rendered masks Dice IOU: {preds_iou_gt_render.sum().item() / preds_iou_gt_render.shape[0]}  Neg IOU: {preds_iou_all.sum().item() / preds_iou_all.shape[0]}')
+            file.write(f'[All Pred masks]IOU of GT and rendered masks Dice IOU: {preds_iou_gt_render.sum().item() / preds_iou_gt_render.shape[0]}  Neg IOU: {preds_iou_all.sum().item() / preds_iou_all.shape[0]}\n')
+            logging.info(f'[All Pred masks]IOU of GT and rendered masks Dice IOU: {preds_iou_gt_render.sum().item() / preds_iou_gt_render.shape[0]}  Neg IOU: {preds_iou_all.sum().item() / preds_iou_all.shape[0]}')
 
         # For RANSAC Method Mesh Optimization
 
@@ -377,7 +380,8 @@ def pred_evimo(unet: UNetDynamic, params: Params, device: str):
         ransac_iou_pred_render = discoeff_loss(mask_preds, mesh_ransac_silhouettes)
 
         with open(os.path.join(basedir, 'loss.txt'), 'a+') as file:
-            file.write(f'[RANSAC masks]IOU of GT and rendered masks Dice IOU: {ransac_iou_gt_render.sum().item() / ransac_iou_gt_render.shape[0]}  Neg IOU: {ransac_iou_all.sum().item() / ransac_iou_all.shape[0]}')
+            file.write(f'[RANSAC masks]IOU of GT and rendered masks Dice IOU: {ransac_iou_gt_render.sum().item() / ransac_iou_gt_render.shape[0]}  Neg IOU: {ransac_iou_all.sum().item() / ransac_iou_all.shape[0]}\n')
+            logging.info(f'[RANSAC masks]IOU of GT and rendered masks Dice IOU: {ransac_iou_gt_render.sum().item() / ransac_iou_gt_render.shape[0]}  Neg IOU: {ransac_iou_all.sum().item() / ransac_iou_all.shape[0]}')
 
         res_dir = os.path.join(basedir, 'all_results')
 
@@ -387,9 +391,12 @@ def pred_evimo(unet: UNetDynamic, params: Params, device: str):
         plt.rc('xtick', labelsize=8)
         plt.rc('ytick', labelsize=8)
 
+        ransac_render_img_path = os.path.join(ransac_mask_dir, 'img')
+        os.makedirs(ransac_render_img_path, exist_ok=True)
+
         os.makedirs(res_dir, exist_ok=True)
         for count in range(mask_gts.shape[0]):
-            plt.figure(figsize=(8, 4),dpi=288)
+            plt.figure(figsize=(8, 4), dpi=288)
             plt.subplot(241)
             plt.title("event frame")
             plt.imshow(ev_frames[count].permute(1, 2, 0))
@@ -415,8 +422,9 @@ def pred_evimo(unet: UNetDynamic, params: Params, device: str):
             plt.title("ransac render %.3f" % ransac_iou_gt_render[count] + " Inlier" if idx_over_threshold[count].item() else "")
             plt.imshow(mesh_ransac_silhouettes[count])
             plt.savefig(os.path.join(res_dir, f'{count}.png'))
-            plt.show()
+            # plt.show()
             plt.close()
+            cv2.imwrite(os.path.join(ransac_render_img_path, f'{count}.png'), img_as_ubyte(mesh_ransac_images[count]))
 
         logging.info(f'Path over! : {dir_path}')
 
