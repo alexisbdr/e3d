@@ -19,7 +19,7 @@ from pytorch3d.ops import sample_points_from_meshes
 from pytorch3d.renderer import (PerspectiveCameras, TexturesAtlas,
                                 get_world_to_view_transform, look_at_rotation)
 from pytorch3d.structures import Meshes
-from segpose import UNetDynamic, UNet
+from segpose import UNetDynamic, UNet, SegPoseNet
 from segpose.dataset import EvMaskPoseDataset, EvimoDataset
 from utils.params import Params
 from torch.autograd import Variable
@@ -596,8 +596,10 @@ if __name__ == "__main__":
     params.logger = logging
 
     try:
-        unet = UNetDynamic.load(params)
-        unet = nn.DataParallel(unet).to(device)
+        unet = UNet.load(params)
+        seg_pose = SegPoseNet.load(unet, params)
+        # unet = UNetDynamic.load(params)
+        # unet = nn.DataParallel(unet).to(device)
         logging.info("Loaded UNet from params")
         # mesh_model = MeshDeformationModel(device=device, params=params)
         # logging.info("Loaded Mesh Deformation Model")
