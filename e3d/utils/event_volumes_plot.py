@@ -28,7 +28,7 @@ def plot_event_volume(events: np.array, path: str, scale: float=0.2,  show_grid:
 
 event_path = "/data4/jiangjianping/E3D/EVIMO/data_pre/plane_small/seq_02/events.txt"
 # event_path = "/data2/jiangjianping/Event/test.txt"
-dir_path = "./data/train_second/test_paper/floor_seq_01/volumes"
+dir_path = "../data/train_second/test_paper/floor_seq_01/volumes"
 #dir_path = "./data/plane_train_third/test_paper/seq_02/"
 os.makedirs(dir_path, exist_ok=True)
 scale = 0.2

@@ -16,7 +16,10 @@ from PIL import Image
 from pytorch3d.io import save_obj
 from pytorch3d.structures import Meshes
 from skimage import img_as_ubyte
+import matplotlib
 import matplotlib.pyplot as plt
+matplotlib.use('Agg')
+
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s, %(message)s")
 
@@ -479,7 +482,6 @@ class RenderManager:
         Finds the most recent valid render directory or the one specified by "dir_num"
         Returns a instantiated class from that folder
         """
-        # TODO meaning of the render folder and the dir num usage
         if render_folder:
             cls.render_folder = render_folder
         directory_paths = sorted(os.listdir(render_folder), reverse=True)

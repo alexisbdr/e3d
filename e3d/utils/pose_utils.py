@@ -2,6 +2,8 @@ import math
 
 import numpy as np
 import torch
+from pytorch3d.transforms import so3_relative_angle
+from pytorch3d.renderer import PerspectiveCameras
 
 
 def qlog(q):
@@ -101,7 +103,7 @@ def get_relative_camera(cams, edges):
     # first generate the world-to-view Transform3d objects of each
     # camera pair (i, j) according to the edges argument
     trans_i, trans_j = [
-        SfMPerspectiveCameras(
+        PerspectiveCameras(
             R=cams.R[edges[:, i]], T=cams.T[edges[:, i]], device=device,
         ).get_world_to_view_transform()
         for i in (0, 1)
@@ -112,7 +114,7 @@ def get_relative_camera(cams, edges):
 
     # generate a camera from the relative transform
     matrix_rel = trans_rel.get_matrix()
-    cams_relative = SfMPerspectiveCameras(
+    cams_relative = PerspectiveCameras(
         R=matrix_rel[:, :3, :3], T=matrix_rel[:, 3, :3], device=device,
     )
     return cams_relative

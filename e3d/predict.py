@@ -51,6 +51,9 @@ def discoeff_loss(predict, target):
     return (2 * intersect + 1e-6) / union
 
 
+def t_error(predict, target):
+    return torch.norm(predict - target)
+
 def neg_iou_loss(predict, target):
     dims = tuple(range(predict.ndim)[1:])
     intersect = (predict * target).sum(dims) + 1e-6
@@ -106,6 +109,13 @@ def get_args():
         type=str,
         default=Params.model_cpt,
         help='model checkpoint path!'
+    )
+    parser.add_argument(
+        '--segpose_model_cpt',
+        dest='segpose_model_cpt',
+        type=str,
+        default=Params.segpose_model_cpt,
+        help='segpose model checkpoint path!'
     )
     parser.add_argument(
         '--name',
@@ -181,14 +191,15 @@ def plot_cams_from_poses(pose_gt, pose_pred, device: str):
     return fig
 
 
-def predict_segpose(unet: UNetDynamic, img: Image, threshold: float, img_size: tuple):
+def predict_segpose(segpose: SegPoseNet, img: Image, threshold: float, img_size: tuple):
     """Runs prediction for a single PIL Event Frame
     """
     ev_frame = torch.from_numpy(EvMaskPoseDataset.preprocess_images(img, img_size))
     ev_frame = ev_frame.unsqueeze(0).to(device=device, dtype=torch.float)
     with torch.no_grad():
-        mask_pred = unet(ev_frame)
+        mask_pred, pose_pred = segpose(ev_frame)
         probs = torch.sigmoid(mask_pred).squeeze(0).cpu()
+        pose_pred = pose_pred.squeeze(1).cpu()
         tf = transforms.Compose(
             [
                 transforms.ToPILImage(),
@@ -202,7 +213,7 @@ def predict_segpose(unet: UNetDynamic, img: Image, threshold: float, img_size: t
 
     plot_img_and_mask(img, full_mask)
 
-    return (full_mask).astype(np.uint8) * 255
+    return (full_mask).astype(np.uint8) * 255, pose_pred
 
 
 def save_mesh(path, mesh):
@@ -429,7 +440,7 @@ def pred_evimo(unet: UNetDynamic, params: Params, device: str):
         logging.info(f'Path over! : {dir_path}')
 
 
-def pred_synth(models: dict, params: Params, mesh_type: str = "dolphin"):
+def pred_synth(segpose, params: Params, mesh_type: str = "dolphin", device: str = "cuda"):
 
     if not params.pred_dir and not os.path.exists(params.pred_dir):
         raise FileNotFoundError(
@@ -447,24 +458,107 @@ def pred_synth(models: dict, params: Params, mesh_type: str = "dolphin"):
         # Run Silhouette Prediction Network
         logging.info(f"Starting mask predictions")
         mask_priors = []
+        R_pred, T_pred = [], []
+        q_loss, t_loss = 0, 0
         # Collect Translation stats
         R_gt, T_gt = manager._trajectory
+        poses_gt = EvMaskPoseDataset.preprocess_poses(manager._trajectory)
+        std_T, mean_T = torch.std_mean(T_gt)
         for idx in range(len(manager)):
             try:
                 ev_frame = manager.get_event_frame(idx)
             except Exception as e:
                 print(e)
                 break
-            mask_pred = predict_segpose(
-                models["unet"], ev_frame, params.threshold_conf, params.img_size
+            mask_pred, pose_pred = predict_segpose(
+                segpose, ev_frame, params.threshold_conf, params.img_size
             )
             # mask_pred = smooth_predicted_mask(mask_pred)
             manager.add_pred(idx, mask_pred, "silhouette")
             mask_priors.append(torch.from_numpy(mask_pred))
 
+            # Make qexp a torch function
+            # q_pred = qexp(pose_pred[:, 3:])
+            # q_targ = qexp(poses_gt[idx, 3:].unsqueeze(0))
+            ####  SHOULD THIS BE NORMALIZED ??
+            q_pred = pose_pred[:, 3:]
+            q_targ = poses_gt[idx, 3:]
+
+            q_pred_unit = q_pred / torch.norm(q_pred)
+            q_targ_unit = q_targ / torch.norm(q_targ)
+            # print("learnt: ", q_pred_unit, q_targ_unit)
+
+            t_pred = pose_pred[:, :3] * std_T + mean_T
+            t_targ = poses_gt[idx, :3] * std_T + mean_T
+            T_pred.append(t_pred)
+
+            q_loss += quaternion_angular_error(q_pred_unit, q_targ_unit)
+            t_loss += t_error(t_pred, t_targ)
+
+            r_pred = rc.quaternion_to_matrix(q_pred).unsqueeze(0)
+            R_pred.append(r_pred.squeeze(0))
+
+        q_loss_mean = q_loss / (idx + 1)
+        t_loss_mean = t_loss / (idx + 1)
+
+        # Convert R,T to world-to-view transforms --> Pytorch3d convention for the :
+
+        R_pred_abs = torch.cat(R_pred)
+        T_pred_abs = torch.cat(T_pred)
+        # Take inverse of view-to-world (output of net) to obtain w2v
+        wtv_trans = (
+            get_world_to_view_transform(R=R_pred_abs, T=T_pred_abs)
+                .inverse()
+                .get_matrix()
+        )
+        T_pred = wtv_trans[:, 3, :3]
+        R_pred = wtv_trans[:, :3, :3]
+        R_pred_test = look_at_rotation(T_pred_abs)
+        T_pred_test = -torch.bmm(R_pred_test.transpose(1, 2), T_pred_abs[:, :, None])[
+                       :, :, 0
+                       ]
+        # Convert back to view-to-world to get absolute
+        vtw_trans = (
+            get_world_to_view_transform(R=R_pred_test, T=T_pred_test)
+                .inverse()
+                .get_matrix()
+        )
+        T_pred_trans = vtw_trans[:, 3, :3]
+        R_pred_trans = vtw_trans[:, :3, :3]
+
+        # Calc pose error for this:
+        q_loss_mean_test = 0
+        t_loss_mean_test = 0
+        for idx in range(len(R_pred_test)):
+            q_pred_trans = rc.matrix_to_quaternion(R_pred_trans[idx]).squeeze()
+            q_targ = poses_gt[idx, 3:]
+            q_targ_unit = q_targ / torch.norm(q_targ)
+            # print("look: ", q_test, q_targ)
+            q_loss_mean_test += quaternion_angular_error(q_pred_trans, q_targ_unit)
+            t_targ = poses_gt[idx, :3] * std_T + mean_T
+            t_loss_mean_test += t_error(T_pred_trans[idx], t_targ)
+        q_loss_mean_test /= idx + 1
+        t_loss_mean_test /= idx + 1
+
+        logging.info(
+            f"Mean Translation Error: {t_loss_mean}; Mean Rotation Error: {q_loss_mean}"
+        )
+        logging.info(
+            f"Mean Translation Error: {t_loss_mean_test}; Mean Rotation Error: {q_loss_mean_test}"
+        )
 
         # Plot estimated cameras
         logging.info(f"Plotting pose map")
+        idx = random.sample(range(len(R_gt)), k=2)
+        pose_plot = plot_cams_from_poses(
+            (R_gt[idx], T_gt[idx]), (R_pred[idx], T_pred[idx]), params.device
+        )
+        pose_plot_test = plot_cams_from_poses(
+            (R_gt[idx], T_gt[idx]), (R_pred_test[idx], T_pred_test[idx]), params.device
+        )
+        manager.add_pose_plot(pose_plot, "rot+trans")
+        manager.add_pose_plot(pose_plot_test, "trans")
+
         count += 1
         groundtruth_silhouettes = manager._images("silhouette") / 255.0
         print(groundtruth_silhouettes.shape)
@@ -476,84 +570,175 @@ def pred_synth(models: dict, params: Params, mesh_type: str = "dolphin"):
 
         # RUN MESH DEFORMATION
 
+        # RUN MESH DEFORMATION
+        # Run it 3 times: w/ Rot+Trans - w/ Trans+LookAt - w/ GT Pose
+        experiments = {
+            "GT-Pose": [R_gt, T_gt],
+            # "Rot+Trans": [R_pred, T_pred],
+            # "Trans+LookAt": [R_pred_test, T_pred_test]
+        }
+
         results = {}
         input_m = torch.stack((mask_priors))
 
-        logging.info(f"Input pred shape & max: {input_m.shape}, {input_m.max()}")
-        # The MeshDeformation model will return silhouettes across all view by default
+        for i in range(len(experiments.keys())):
 
-        experiment_results = models["mesh"].run_optimization(input_m, R_gt, T_gt)
-        renders = models["mesh"].render_final_mesh(
-            (R_gt, T_gt), "predict", input_m.shape[-2:]
-        )
+            logging.info(f"Input pred shape & max: {input_m.shape}, {input_m.max()}")
+            # The MeshDeformation model will return silhouettes across all view by default
 
-        mesh_silhouettes = renders["silhouettes"].squeeze(1)
-        mesh_images = renders["images"].squeeze(1)
-        experiment_name = params.name
-        for idx in range(len(mesh_silhouettes)):
-            manager.add_pred(
-                idx,
-                mesh_silhouettes[idx].cpu().numpy(),
-                "silhouette",
-                destination=f"mesh_{experiment_name}",
-            )
-            manager.add_pred(
-                idx,
-                mesh_images[idx].cpu().numpy(),
-                "phong",
-                destination=f"mesh_{experiment_name}",
+            mesh_model = MeshDeformationModel(device=device, params=params)
+
+            R, T = list(experiments.values())[i]
+            experiment_results = mesh_model.run_optimization(input_m, R, T)
+            renders = mesh_model.render_final_mesh(
+                (R, T), "predict", input_m.shape[-2:]
             )
 
-        # Calculate chamfer loss:
-        mesh_pred = models["mesh"]._final_mesh
-        if mesh_type == "dolphin":
-            path = params.gt_mesh_path
-            mesh_gt = load_objs_as_meshes(
-                [path],
-                create_texture_atlas=False,
-                load_textures=True,
-                device=device,
-            )
-        # Shapenet Cars
-        elif mesh_type == "shapenet":
-            mesh_info = manager.metadata["mesh_info"]
-            path = params.gt_mesh_path
-            try:
-                verts, faces, aux = load_obj(
-                    path, load_textures=True, create_texture_atlas=True
+            mesh_silhouettes = renders["silhouettes"].squeeze(1)
+            mesh_images = renders["images"].squeeze(1)
+            experiment_name = list(experiments.keys())[i]
+            for idx in range(len(mesh_silhouettes)):
+                manager.add_pred(
+                    idx,
+                    mesh_silhouettes[idx].cpu().numpy(),
+                    "silhouette",
+                    destination=f"mesh_{experiment_name}",
+                )
+                manager.add_pred(
+                    idx,
+                    mesh_images[idx].cpu().numpy(),
+                    "phong",
+                    destination=f"mesh_{experiment_name}",
                 )
 
-                mesh_gt = Meshes(
-                    verts=[verts],
-                    faces=[faces.verts_idx],
-                    textures=TexturesAtlas(atlas=[aux.texture_atlas]),
-                ).to(device)
-            except:
-                mesh_gt = None
-                print("CANNOT COMPUTE CHAMFER LOSS")
-        if mesh_gt and params.is_real_data:
-            mesh_pred_compute, mesh_gt_compute = scale_meshes(
-                mesh_pred.clone(), mesh_gt.clone()
-            )
-            pcl_pred = sample_points_from_meshes(
-                mesh_pred_compute, num_samples=5000
-            )
-            pcl_gt = sample_points_from_meshes(mesh_gt_compute, num_samples=5000)
-            chamfer_loss = chamfer_distance(
-                pcl_pred, pcl_gt, point_reduction="mean"
-            )
-            print("CHAMFER LOSS: ", chamfer_loss)
-            experiment_results["chamfer_loss"] = (
-                chamfer_loss[0].cpu().detach().numpy().tolist()
-            )
+            # Calculate chamfer loss:
+            mesh_pred = mesh_model._final_mesh
+            if mesh_type == "dolphin":
+                path = "data/meshes/dolphin/dolphin.obj"
+                mesh_gt = load_objs_as_meshes(
+                    [path],
+                    create_texture_atlas=False,
+                    load_textures=True,
+                    device=device,
+                )
+            # Shapenet Cars
+            elif mesh_type == "shapenet":
+                mesh_info = manager.metadata["mesh_info"]
+                path = os.path.join(params.gt_mesh_path, f"/ShapeNetCorev2/{mesh_info['synset_id']}/{mesh_info['mesh_id']}/models/model_normalized.obj")
+                # path = f"data/ShapeNetCorev2/{mesh_info['synset_id']}/{mesh_info['mesh_id']}/models/model_normalized.obj"
+                try:
+                    verts, faces, aux = load_obj(
+                        path, load_textures=True, create_texture_atlas=True
+                    )
 
-        mesh_iou = neg_iou_loss_all(groundtruth_silhouettes, mesh_silhouettes)
+                    mesh_gt = Meshes(
+                        verts=[verts],
+                        faces=[faces.verts_idx],
+                        textures=TexturesAtlas(atlas=[aux.texture_atlas]),
+                    ).to(device)
+                except:
+                    mesh_gt = None
+                    print("CANNOT COMPUTE CHAMFER LOSS")
+            if mesh_gt:
+                mesh_pred_compute, mesh_gt_compute = scale_meshes(
+                    mesh_pred.clone(), mesh_gt.clone()
+                )
+                pcl_pred = sample_points_from_meshes(
+                    mesh_pred_compute, num_samples=5000
+                )
+                pcl_gt = sample_points_from_meshes(mesh_gt_compute, num_samples=5000)
+                chamfer_loss = chamfer_distance(
+                    pcl_pred, pcl_gt, point_reduction="mean"
+                )
+                print("CHAMFER LOSS: ", chamfer_loss)
+                experiment_results["chamfer_loss"] = (
+                    chamfer_loss[0].cpu().detach().numpy().tolist()
+                )
 
-        experiment_results["mesh_iou"] = mesh_iou.cpu().numpy().tolist()
+            mesh_iou = neg_iou_loss(groundtruth_silhouettes, mesh_silhouettes)
 
-        results[experiment_name] = experiment_results
+            experiment_results["mesh_iou"] = mesh_iou.cpu().numpy().tolist()
 
-        manager.add_pred_mesh(mesh_pred, experiment_name)
+            results[experiment_name] = experiment_results
+
+            manager.add_pred_mesh(mesh_pred, experiment_name)
+        # logging.info(f"Input pred shape & max: {input_m.shape}, {input_m.max()}")
+        # # The MeshDeformation model will return silhouettes across all view by default
+        #
+        #
+        #
+        # experiment_results = models["mesh"].run_optimization(input_m, R_gt, T_gt)
+        # renders = models["mesh"].render_final_mesh(
+        #     (R_gt, T_gt), "predict", input_m.shape[-2:]
+        # )
+        #
+        # mesh_silhouettes = renders["silhouettes"].squeeze(1)
+        # mesh_images = renders["images"].squeeze(1)
+        # experiment_name = params.name
+        # for idx in range(len(mesh_silhouettes)):
+        #     manager.add_pred(
+        #         idx,
+        #         mesh_silhouettes[idx].cpu().numpy(),
+        #         "silhouette",
+        #         destination=f"mesh_{experiment_name}",
+        #     )
+        #     manager.add_pred(
+        #         idx,
+        #         mesh_images[idx].cpu().numpy(),
+        #         "phong",
+        #         destination=f"mesh_{experiment_name}",
+        #     )
+        #
+        # # Calculate chamfer loss:
+        # mesh_pred = models["mesh"]._final_mesh
+        # if mesh_type == "dolphin":
+        #     path = params.gt_mesh_path
+        #     mesh_gt = load_objs_as_meshes(
+        #         [path],
+        #         create_texture_atlas=False,
+        #         load_textures=True,
+        #         device=device,
+        #     )
+        # # Shapenet Cars
+        # elif mesh_type == "shapenet":
+        #     mesh_info = manager.metadata["mesh_info"]
+        #     path = params.gt_mesh_path
+        #     try:
+        #         verts, faces, aux = load_obj(
+        #             path, load_textures=True, create_texture_atlas=True
+        #         )
+        #
+        #         mesh_gt = Meshes(
+        #             verts=[verts],
+        #             faces=[faces.verts_idx],
+        #             textures=TexturesAtlas(atlas=[aux.texture_atlas]),
+        #         ).to(device)
+        #     except:
+        #         mesh_gt = None
+        #         print("CANNOT COMPUTE CHAMFER LOSS")
+        # if mesh_gt and params.is_real_data:
+        #     mesh_pred_compute, mesh_gt_compute = scale_meshes(
+        #         mesh_pred.clone(), mesh_gt.clone()
+        #     )
+        #     pcl_pred = sample_points_from_meshes(
+        #         mesh_pred_compute, num_samples=5000
+        #     )
+        #     pcl_gt = sample_points_from_meshes(mesh_gt_compute, num_samples=5000)
+        #     chamfer_loss = chamfer_distance(
+        #         pcl_pred, pcl_gt, point_reduction="mean"
+        #     )
+        #     print("CHAMFER LOSS: ", chamfer_loss)
+        #     experiment_results["chamfer_loss"] = (
+        #         chamfer_loss[0].cpu().detach().numpy().tolist()
+        #     )
+        #
+        # mesh_iou = neg_iou_loss_all(groundtruth_silhouettes, mesh_silhouettes)
+        #
+        # experiment_results["mesh_iou"] = mesh_iou.cpu().numpy().tolist()
+        #
+        # results[experiment_name] = experiment_results
+        #
+        # manager.add_pred_mesh(mesh_pred, experiment_name)
 
         seg_iou = neg_iou_loss_all(groundtruth_silhouettes, input_m / 255.0)
         gt_iou = neg_iou_loss_all(groundtruth_silhouettes, groundtruth_silhouettes)
@@ -596,22 +781,23 @@ if __name__ == "__main__":
     params.logger = logging
 
     try:
-        unet = UNet.load(params)
-        seg_pose = SegPoseNet.load(unet, params)
-        # unet = UNetDynamic.load(params)
-        # unet = nn.DataParallel(unet).to(device)
-        logging.info("Loaded UNet from params")
-        # mesh_model = MeshDeformationModel(device=device, params=params)
-        # logging.info("Loaded Mesh Deformation Model")
-        # models = dict(unet=unet, mesh=mesh_model)
         exper_path = os.path.join(params.exper_dir, params.name)
         os.makedirs(exper_path, exist_ok=True)
         with open(os.path.join(exper_path, 'config.json'), 'w') as file:
             file.write(json.dumps(params.as_dict()))
         if params.is_real_data:
+            unet = UNetDynamic.load(params)
+            unet = nn.DataParallel(unet).to(device)
+            logging.info(unet)
+            logging.info(f"Loaded UNet Model from {params.model_cpt}- Starting training")
             pred_evimo(unet, params, device)
         else:
-            # pred_synth(models, params, mesh_type='shapenet')
+            unet = UNet.load(params)
+            segpose_model = SegPoseNet.load(unet, params)
+            segpose_model = nn.DataParallel(segpose_model).to(device)
+            logging.info(segpose_model)
+            logging.info(f"Loaded UNet Model from {params.model_cpt}- Starting training")
+            pred_synth(segpose_model, params, mesh_type='shapenet', device=device)
             pass
     except KeyboardInterrupt:
         logging.error("Received interrupt terminating prediction run")

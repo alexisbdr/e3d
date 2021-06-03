@@ -1,6 +1,7 @@
 import logging
 import os
 import torch
+import torch.nn.functional as F
 from segpose.layers import DoubleConv, Down, OutConv, Up
 from torch import nn
 import numpy as np
@@ -217,6 +218,83 @@ class UNetDynamic(BaseModel):
         )
 
         return super().load(params, net)
+
+
+class SegPoseNet(nn.Module):
+    """
+    Joint UNet and pose estimation wrapper
+    """
+
+    def __init__(self, unet: nn.Module, params):
+        super(SegPoseNet, self).__init__()
+
+        self.device = params.device
+        self.droprate = params.droprate
+
+        self.unet = unet
+
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(self.unet.encoder_out_channel, params.feat_dim)
+
+        self.fc_xyz = nn.Linear(params.feat_dim, 3)
+        self.fc_wpqr = nn.Linear(params.feat_dim, 4)
+
+        init = [self.fc, self.fc_xyz, self.fc_wpqr]
+        for m in init:
+            nn.init.kaiming_normal_(m.weight.data)
+            if m.bias is not None:
+                nn.init.constant_(m.bias.data, 0)
+
+    def forward(self, x):
+
+        s = x.size()
+        x = x.view(-1, *s[2:]).unsqueeze(1)
+        mask_pred = self.unet(x)
+
+        x = self.unet.x5
+
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1).to(self.device)
+        x = self.fc(x)
+        x = F.relu(x)
+
+        if self.droprate > 0:
+            x = F.dropout(x, p=self.droprate)
+
+        xyz = self.fc_xyz(x)
+        wpqr = self.fc_wpqr(x)
+
+        poses = torch.cat((xyz, wpqr), 1)
+        poses = poses.view(s[0], s[1], -1)
+
+        return mask_pred, poses
+
+    # def parameters(self):
+    #     """Generator that returns parameters only for pose model
+    #     """
+    #     for name, param in self.named_parameters(recurse=True):
+    #         if name.split(".")[0] == "unet":
+    #             continue
+    #         yield param
+
+    @classmethod
+    def load(cls, unet: nn.Module, params):
+        """Method for loading the UNet either from a dict or from params
+        """
+        net = cls(unet, params)
+        if params.segpose_model_cpt:
+            checkpoint = torch.load(
+                params.segpose_model_cpt, map_location=params.device
+            )
+            try:
+                net.load_state_dict(checkpoint["model"])
+            except RuntimeError:
+                del checkpoint["model"]["fc_wpqr.weight"]
+                del checkpoint["model"]["fc_wpqr.bias"]
+                net.load_state_dict(checkpoint["model"], strict=False)
+        net.to(device=params.device)
+
+        return net
 
 
 def weights_init(m):

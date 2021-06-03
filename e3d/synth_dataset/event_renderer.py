@@ -2,6 +2,9 @@ from dataclasses import dataclass
 
 import esim_py
 import numpy as np
+import matplotlib
+import matplotlib.pyplot as plt
+matplotlib.use('Agg')
 
 
 @dataclass

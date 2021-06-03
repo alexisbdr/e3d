@@ -4,11 +4,6 @@ import os
 import sys
 import re
 from os.path import abspath, dirname, join
-
-# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
-
-
 sys.path.insert(0, abspath(join("..", dirname(os.getcwd()))))
 
 import logging

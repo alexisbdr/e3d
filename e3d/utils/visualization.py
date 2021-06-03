@@ -1,6 +1,8 @@
 import os
 
 # Matplot
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import plotly.express as px
@@ -12,6 +14,7 @@ from PIL import Image
 # Plotly
 from plotly.subplots import make_subplots
 from pytorch3d.ops import sample_points_from_meshes
+
 
 
 def plot_event_volume(events: np.array, show_grid: bool = True):

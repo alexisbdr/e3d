@@ -1,6 +1,6 @@
 # E3D: Event-Based Shape Reconstruction
 
-## Running E3D
+## Dependencies
 
 ### Installing Pytorch3D
 * [Linux - Ubuntu16+ or/ CentOS 7]
@@ -47,13 +47,22 @@ conda install -y -c conda-forge opencv tqdm scikit-video eigen boost boost-cpp p
 pip install -e . 
 ```
 
-Installing [PMO](https://github.com/alexisbdr/photometric-mesh-optim.git)
+Installing [PMO](https://github.com/alexisbdr/photometric-mesh-optim.git).
 ```
 git clone https://github.com/alexisbdr/photometric-mesh-optim.git
 ```
 
-## Pre-Trained Models
+Installing [pydvs](https://github.com/AlanJiang98/pydvs) for EVIMO event preprocessing:
+```
+git clone https://github.com/AlanJiang98/pydvs.git
+cd lib
+sudo python3 setup.py install
+```
 
+
+
+## Pre-Trained Models
+### Synthetic Data Models
 Category | Drive Link 
 ------------- | ------------- 
 car  | [link](https://drive.google.com/file/d/1UOdLMux0nr4S7QzST1hjyJlgeASu8JR9/view?usp=sharing)
@@ -64,7 +73,18 @@ dolphin (fine-tuned) | [link](https://drive.google.com/file/d/1VrA8_Dgdto-JxexaT
 car (PMO - Events) | [link](https://drive.google.com/file/d/1klYc0SkwBBGLUTJd64JjO3gJbxiPg1cp/view?usp=sharing)
 chair (PMO - Events) | [link](https://drive.google.com/file/d/1o3Dst-QRZR15Ph6YuwVkotXZVXUu1_0r/view?usp=sharing)
 
+### EVIMO Data Models
+
+Category | Drive Link
+--------- | --------
+car     | [link](https://drive.google.com/file/d/14iwFmiAoANQA9d9iQPc7P-Wj_ZoaH6Fz/view?usp=sharing)
+plane   | [link](https://drive.google.com/file/d/1NKU20teOIiOhZoUs4f1bCVZ5ucxhn99C/view?usp=sharing)
+
+
 ## Datasets
+
+### Synthtic Datasets
+
 Toy datasets of both car and chair are provided with the code to ease reproducibility. We recommend running with the toy datasets (as described below) to reproduce the results seen in the paper/
 
 You will need at least 20G of space to download the full datasets
@@ -82,26 +102,50 @@ test_chair_shapenet | chair | [link](https://drive.google.com/file/d/1rXqfLmqn8y
 train_dolphin | dolphin | [link](https://drive.google.com/file/d/1PjR3j4CmmQhN84NohQXmT48MjWvFQSKW/view?usp=sharing)
 test_dolphin | dolphin | [link](https://drive.google.com/file/d/1TzTdCihnUlnx1-cDL1CrW_0mAJXUXjTX/view?usp=sharing)
 
-### Running pre-trained models
-Default mesh reconstruction parameters are in mesh_reconstruction/params.py
-Car:
+
+### EVIMO Datasets
+Please click [here](TODO) to download the EVIMO dataset we use.
+
+We collect 5 event sequences of car object and 3 event sequences of plane object from [EVIMO DAVIS346](https://better-flow.github.io/evimo/downloads.html#davis_training) 
+for E3D. For more collection details, please refer to the [page](https://docs.google.com/spreadsheets/d/17aVky9cpK0jC6EOLCFd0FKzkRYDXTZ0_wqV3MHQeRs0/edit?usp=sharing). We have generated the event frames from the 
+raw data in EVIMO. If you want to generate your own event frames, please download the raw data from [EVIMO DAVIS346](https://better-flow.github.io/evimo/downloads.html#davis_training)
+and refer to the [pydvs](https://github.com/AlanJiang98/pydvs).
+
+
+
+## Running E3D
+
+Experiment settings are in the json file in `config/` directory. You can change the settings in the json file for your experiment. Also, 
+experiment settings are formulated in class `Param` in the `./utils/params.py`. You can change the default settings of each item.
+
+### Evaluation with Pre-trained Models
+
+For synthetic datasets: 
+
 ```
-python predict.py --gpu 0 --model model_checkpoints/car_shapenet.pth --path data/renders/test_car_subset
-```
-Chair:
-```
-python predict.py --gpu 0 --model model_checkpoints/chair_shapenet.pth --path data/renders/test_chair_subset
+python predict.py --cfg ./config/synth/config.json --gpu 0 --segpose_model_cpt /YourModelPath --name /YourExperimentName 
 ```
 
+For EVIMO datasets:
+
+
+```
+python predict.py --cfg ./config/evimo/config.json --gpu 0 --segpose_model_cpt /YourModelPath --name /YourExperimentName 
+```
+
+
 ### Training
-You can find the default training parameters in segpose/params.py
-Car:
+
+For synthetic datasets:
+
 ```
-python train-segpose.py --gpu 0 -t data/renders/train_car_shapenet --name car_shapenet
+python train-segpose.py --gpu 0 --config ./config/synth/config.json
 ```
-Chair:
+
+For EVIMO datasets:
+
 ```
-python train-segpose.py --gpu 0 -t data/renders/train_chair_shapenet --name chair_shapenet
+python train-segpose.py --gpu 0 --config ./config/evimo/config.json
 ```
 
 ### Generating a synthetic event dataset

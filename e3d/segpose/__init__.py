@@ -1,1 +1,1 @@
-from .models import UNetDynamic, UNet
+from .models import UNetDynamic, UNet, SegPoseNet

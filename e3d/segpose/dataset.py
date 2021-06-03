@@ -12,7 +12,6 @@ from utils.params import Params
 from torch.utils.data import (BatchSampler, ConcatDataset, Dataset, Sampler, SubsetRandomSampler)
 from utils.manager import RenderManager
 import json
-import matplotlib.pyplot as plt
 
 
 class ConcatDataSampler(Sampler):
@@ -90,6 +89,9 @@ class EvMaskPoseDataset(Dataset):
         except:
             self.render_manager = None
 
+        if self.render_manager is not None:
+            self.poses = self.preprocess_poses(self.render_manager._trajectory)
+
     @classmethod
     def preprocess_poses(cls, poses: tuple):
         """Generates (N, 6) vector of absolute poses
@@ -162,6 +164,7 @@ class EvMaskPoseDataset(Dataset):
         event_frame = self.add_noise_to_frame(event_frame)
 
         R, T = self.render_manager.get_trajectory_point(index)
+        tq = self.poses[index: index + 1]
 
         assert mask.size == event_frame.size, "Mask and event frame must be same size"
 
@@ -172,13 +175,13 @@ class EvMaskPoseDataset(Dataset):
             self.preprocess_images(event_frame, self.img_size)
         ).type(torch.FloatTensor)
 
-        return event_frame, mask, R, T
+        return event_frame, mask, R, T, tq
 
 
 class EvimoDataset(Dataset):
     """Dataset to manage Evimo Data"""
 
-    def __init__(self, path: str, obj_id="1", is_train=True,slice_name=''):
+    def __init__(self, path: str, obj_id="1", is_train=True, slice_name=''):
 
         self.new_camera = None
         self.map1 = None

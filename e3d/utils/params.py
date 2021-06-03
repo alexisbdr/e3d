@@ -47,6 +47,8 @@ class Params(ParamsBase):
     train_dir: str = ""
     # model path dir
     model_cpt: str = ""
+    # segpose model checkpoint for Synthetic data
+    segpose_model_cpt = ""
     # experiment output path
     exper_dir: str = ""
     # name of the experiments
@@ -64,6 +66,7 @@ class Params(ParamsBase):
     unet_learning_rate: float = 1e-4
     unet_weight_decay: float = 1e-8
     unet_momentum: float = 0.9
+    fine_tuning: bool = True
     # UNet Architecture Params
     n_channels: int = 1
     n_classes: int = 1
@@ -72,6 +75,19 @@ class Params(ParamsBase):
     bilinear: bool = True
     # threshold used for deciding the silhouette
     threshold_conf: float = 0.5
+
+    # Pose Training Params
+    pose_optimizer = optim.Adam
+    pose_learning_rate: float = 1e-4
+    pose_weight_decay: float = 5e-4
+    train_pose: bool = True
+    train_relative: bool = True
+
+    # Pose Architecture Params
+    feat_dim: int = 2048
+    droprate: float = 0.5
+    beta: float = -3.0
+    gamma: float = -3.0
 
     # For testing
     # Params for mesh reconstruction
@@ -92,6 +108,7 @@ class Params(ParamsBase):
     mesh_learning_rate: float = 0.002
     mesh_betas: Tuple[float, float] = (0.9, 0.99)
     # step to log the info of the mesh reconstruction
+    mesh_log: bool = False
     mesh_show_step: int = 50
     # mesh optimization loss functions
     lambda_iou: float = 1.0

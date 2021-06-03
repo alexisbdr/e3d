@@ -1,7 +1,8 @@
 import logging
 import random
 import time
-
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -253,7 +254,8 @@ class MeshDeformationModel(nn.Module):
                     batch_R.shape[0], 2)
                 principle_point = (torch.tensor([camera_settings[0, 2], camera_settings[1, 2]])[None]).expand(
                     batch_R.shape[0], 2)
-                # FIXME: in my PyTorch3D, the image_size in RasterizationSettings is (W, H), while in PerspectiveCameras is (H, W)
+                # FIXME: in this PyTorch3D version, the image_size in RasterizationSettings is (W, H), while in PerspectiveCameras is (H, W)
+                # If the future pytorch3d change the format, please change the settings here
                 # We hope PyTorch3D will solve this issue in the future
                 batch_cameras = PerspectiveCameras(
                     device=self.device, R=batch_R, T=batch_T, focal_length=focal_length,
@@ -290,7 +292,7 @@ class MeshDeformationModel(nn.Module):
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            if i % (self.params.mesh_show_step / 2) == 0:
+            if i % (self.params.mesh_show_step / 2) == 0 and self.params.mesh_log:
                 logging.info(f'Iteration: {i} IOU Loss: {iou_loss.item()} Flatten Loss: {flatten_loss.item()} Laplacian Loss: {laplacian_loss.item()}')
 
             if i % self.params.mesh_show_step == 0 and self.params.im_show:
@@ -316,9 +318,9 @@ class MeshDeformationModel(nn.Module):
             iterations_per_second=self.params.mesh_steps / (time.time() - start_time),
             total_time_s=time.time() - start_time,
         )
-
-        self.init_pose_R = self.init_camera_R.detach().cpu().numpy()
-        self.init_pose_t = self.init_camera_t.detach().cpu().numpy()
+        if self.is_real_data:
+            self.init_pose_R = self.init_camera_R.detach().cpu().numpy()
+            self.init_pose_t = self.init_camera_t.detach().cpu().numpy()
 
         torch.cuda.empty_cache()
 

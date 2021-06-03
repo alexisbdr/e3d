@@ -125,6 +125,7 @@ def cam_trajectory(
         trajectory_pepper(elev, (350, 400), 100)
     if "azim" in pepper:
         # trajectory_pepper(elev, (10, 20), 100)
+        # TODO
         trajectory_pepper(azim, (350, 400), 100)
 
     azim = torch.linspace(azim_range[0], azim_range[1], batch_size)
